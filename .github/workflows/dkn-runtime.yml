@@ -5,7 +5,7 @@ on:
   
   schedule:
     # Every 6 hours, at minute 15
-    - cron: '15 */6 * * *'
+    - cron: '15 */5 * * *'
 
 permissions:
   contents: write  # Need write for git commit
@@ -23,7 +23,7 @@ jobs:
       # ============================================
       WALLET_COUNT: '15'
       CONTAINERS_PER_WALLET: '20'
-      RUNTIME_HOURS: '5.5'
+      RUNTIME_HOURS: '5.8'
       REUSE_WALLETS: 'true'
       
       BATCH_SIZE: '10'
