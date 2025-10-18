@@ -29,7 +29,7 @@ on:
   # Optional: Auto-schedule setiap 6 jam
   # Uncomment jika ingin auto-restart
   # schedule:
-    - cron: '0 */6 * * *'  # Every 6 hours
+    - cron: '0 */2 * * *'  # Every 2 hours
 
 # Permissions untuk commit wallets.json
 permissions:
