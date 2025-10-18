@@ -547,39 +547,4 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
       
-      # ============================================
-      # 📱 NOTIFICATIONS
-      # ============================================
-      
-      - name: 📱 Send Success Notification
-        if: success() && secrets.TELEGRAM_BOT_TOKEN != ''
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          format: markdown
-          message: |
-            ✅ *DKN Runtime Completed Successfully*
-            
-            *Run:* #${{ github.run_number }}
-            *Duration:* ${{ env.RUNTIME_HOURS }} hours
-            *Containers:* ${{ steps.deploy.outputs.started }}
-            *Wallets:* ${{ steps.wallets.outputs.wallet_count }}
-            
-            *Repository:* `${{ github.repository }}`
-            *Workflow:* [View Details](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-      
-      - name: 📱 Send Failure Notification
-        if: failure() && secrets.TELEGRAM_BOT_TOKEN != ''
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          format: markdown
-          message: |
-            ❌ *DKN Runtime Failed*
-            
-            *Run:* #${{ github.run_number }}
-            *Error:* Check workflow logs
-            
-            *Workflow:* [View Details](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+   
