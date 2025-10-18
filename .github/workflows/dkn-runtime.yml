@@ -22,8 +22,8 @@ on:
         required: false
         default: true
   
-schedule:
-  - cron: '*/10 * * * *'
+  schedule:
+    - cron: '*/10 * * * *'
 
 permissions:
   contents: read
