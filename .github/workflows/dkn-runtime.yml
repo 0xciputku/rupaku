@@ -778,5 +778,86 @@ jobs:
             proxy/.env
           retention-days: 7
           if-no-files-found: warn
+
+      # ============================================
+      # 📱 TELEGRAM NOTIFICATIONS
+      # ============================================
+      
+      - name: 📱 Send Success Notification
+        if: success() && secrets.TELEGRAM_BOT_TOKEN
+        run: |
+          echo "📱 Sending Telegram notification..."
+          
+          # Prepare wallet info
+          WALLET_COUNT=$(jq '. | length' wallets.json 2>/dev/null || echo "0")
+          FIRST_WALLET=$(jq -r '.[0].address' wallets.json 2>/dev/null || echo "N/A")
+          
+          # Create message
+          MESSAGE="✅ *DKN Runtime Completed Successfully!*
+
+          *📊 Summary:*
+          • Run: #${{ github.run_number }}
+          • Duration: ${{ env.RUNTIME_HOURS }} hours
+          • Containers Started: ${{ steps.deploy.outputs.started }}
+          • Containers Failed: ${{ steps.deploy.outputs.failed }}
+
+          *💰 Wallets:*
+          • Total: ${WALLET_COUNT} wallets
+          • First: \`${FIRST_WALLET:0:10}...${FIRST_WALLET: -8}\`
+          • File: Attached below 📄
+
+          *🕐 Time:*
+          • Finished: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+          *📍 Repository:*
+          \`${{ github.repository }}\`
+
+          *🔗 Links:*
+          • [View Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          • [View wallets.json](${{ github.server_url }}/${{ github.repository }}/blob/main/wallets.json)"
+
+          # Send text message
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${{ secrets.TELEGRAM_CHAT_ID }}\",\"text\":\"${MESSAGE}\",\"parse_mode\":\"Markdown\",\"disable_web_page_preview\":true}"
+          
+          # Send wallets.json as file
+          if [ -f wallets.json ]; then
+            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
+              -F "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+              -F "document=@wallets.json" \
+              -F "caption=💰 Wallets from run #${{ github.run_number }} | Total: ${WALLET_COUNT} wallets"
+            
+            echo "✅ Notification sent with wallets.json file"
+          else
+            echo "⚠️ wallets.json not found, skipping file upload"
+          fi
+      
+      - name: 📱 Send Failure Notification
+        if: failure() && secrets.TELEGRAM_BOT_TOKEN
+        run: |
+          echo "📱 Sending failure notification..."
+          
+          MESSAGE="❌ *DKN Runtime Failed!*
+
+          *📊 Details:*
+          • Run: #${{ github.run_number }}
+          • Repository: \`${{ github.repository }}\`
+          • Branch: \`${{ github.ref_name }}\`
+
+          *🕐 Time:*
+          • Failed at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+          *⚠️ Action Required:*
+          Check workflow logs to identify the issue.
+
+          *🔗 Links:*
+          [View Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${{ secrets.TELEGRAM_CHAT_ID }}\",\"text\":\"${MESSAGE}\",\"parse_mode\":\"Markdown\"}"
+          
+          echo "✅ Failure notification sent"
       
    
