@@ -7,15 +7,15 @@ on:
       wallet_count:
         description: 'Number of wallets to generate/use'
         required: false
-        default: '15'
+        default: '30'
       containers_per_wallet:
         description: 'Containers per wallet (recommended: 20 for safety)'
         required: false
-        default: '43'
+        default: '21'
       runtime_hours:
         description: 'Runtime hours (max 5.9 due to GitHub 6h limit)'
         required: false
-        default: '5.5'
+        default: '5.8'
       reuse_wallets:
         description: 'Reuse existing wallets from previous artifacts?'
         type: boolean
@@ -27,19 +27,7 @@ on:
   # ============================================
   schedule:
     # Option 1: Setiap 6 jam (4x sehari)
-    - cron: '0 */1 * * *'
-    
-    # Option 2: Setiap 12 jam (2x sehari) - RECOMMENDED
-    # - cron: '0 */12 * * *'
-    
-    # Option 3: Setiap hari sekali (1x sehari)
-    # - cron: '0 0 * * *'
-    
-    # Option 4: Dua kali sehari (pagi & malam)
-    # - cron: '0 6,18 * * *'
-    
-    # Option 5: Setiap 3 hari sekali
-    # - cron: '0 0 */3 * *'
+    - cron: '0 */6 * * *'
 
 # Permissions untuk commit wallets.json
 permissions:
