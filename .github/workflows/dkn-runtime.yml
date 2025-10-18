@@ -1,26 +1,7 @@
 name: 🚀 DKN Compute Runtime
 
-
 on:
-  workflow_dispatch:
-    inputs:
-      wallet_count:
-        description: 'Number of wallets to generate/use'
-        required: false
-        default: '15'
-      containers_per_wallet:
-        description: 'Containers per wallet (recommended: 20 for safety)'
-        required: false
-        default: '20'
-      runtime_hours:
-        description: 'Runtime hours (max 5.9 due to GitHub 6h limit)'
-        required: false
-        default: '5.8'
-      reuse_wallets:
-        description: 'Reuse existing wallets from previous artifacts?'
-        type: boolean
-        required: false
-        default: true
+  workflow_dispatch:  # Manual trigger (tanpa inputs)
   
   schedule:
     - cron: '*/10 * * * *'
@@ -36,14 +17,18 @@ jobs:
     timeout-minutes: 360
     
     env:
-      # Use inputs from manual run, or defaults from secrets/hardcoded for scheduled runs
-      WALLET_COUNT: ${{ github.event.inputs.wallet_count || '15' }}
-      CONTAINERS_PER_WALLET: ${{ github.event.inputs.containers_per_wallet || secrets.CONTAINERS_PER_WALLET || '20' }}
-      RUNTIME_HOURS: ${{ github.event.inputs.runtime_hours || '5.8' }}
-      REUSE_WALLETS: ${{ github.event.inputs.reuse_wallets || 'true' }}
-      BATCH_SIZE: ${{ secrets.BATCH_SIZE || '10' }}
-      PAUSE_SECONDS: 60
-      PROXY_PORT: 14441
+      # ============================================
+      # 🔧 CONFIGURATION (EDIT HERE)
+      # ============================================
+      WALLET_COUNT: '15'                    # Jumlah wallet
+      CONTAINERS_PER_WALLET: '20'           # Containers per wallet (RECOMMENDED: 20)
+      RUNTIME_HOURS: '5.5'                  # Runtime duration (max 5.9)
+      REUSE_WALLETS: 'true'                 # true = reuse from artifacts, false = generate new
+      
+      # Advanced settings (optional)
+      BATCH_SIZE: '10'                      # Deploy batch size
+      PAUSE_SECONDS: '60'                   # Pause between batches
+      PROXY_PORT: '14441'                   # Proxy port
             
     steps:
       # ============================================
