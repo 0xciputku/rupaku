@@ -1,0 +1,579 @@
+name: 🚀 DKN Compute Runtime
+
+on:
+  # Manual trigger dengan options
+  workflow_dispatch:
+    inputs:
+      wallet_count:
+        description: 'Number of wallets to generate/use'
+        required: false
+        default: '10'
+        type: number
+      containers_per_wallet:
+        description: 'Containers per wallet (recommended: 20 for safety)'
+        required: false
+        default: '20'
+        type: number
+      runtime_hours:
+        description: 'Runtime hours (max 5.9 due to GitHub 6h limit)'
+        required: false
+        default: '5.5'
+        type: number
+      reuse_wallets:
+        description: 'Reuse existing wallets.json from repo?'
+        required: false
+        default: true
+        type: boolean
+
+  # Optional: Auto-schedule setiap 6 jam
+  # Uncomment jika ingin auto-restart
+  # schedule:
+  #   - cron: '0 */6 * * *'  # Every 6 hours
+
+# Permissions untuk commit wallets.json
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  runtime:
+    name: 🖥️ Run DKN Compute Nodes
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hours hard limit
+    
+    env:
+      # Default values (bisa di-override dari secrets atau inputs)
+      CONTAINERS_PER_WALLET: ${{ inputs.containers_per_wallet || secrets.CONTAINERS_PER_WALLET || '20' }}
+      BATCH_SIZE: ${{ secrets.BATCH_SIZE || '10' }}
+      PAUSE_SECONDS: 60
+      PROXY_PORT: 14441
+      RUNTIME_HOURS: ${{ inputs.runtime_hours || '5.5' }}
+      
+    steps:
+      # ============================================
+      # 📦 SETUP PHASE
+      # ============================================
+      
+      - name: 📦 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for git operations
+      
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            proxy/package-lock.json
+            scripts/package-lock.json
+      
+      - name: 📊 Display Runner Info
+        run: |
+          echo "🖥️  Runner Information:"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "OS: $(lsb_release -d | cut -f2)"
+          echo "Kernel: $(uname -r)"
+          echo "CPU Cores: $(nproc)"
+          echo "Total RAM: $(free -h | awk '/^Mem:/ {print $2}')"
+          echo "Available RAM: $(free -h | awk '/^Mem:/ {print $7}')"
+          echo "Disk Space: $(df -h / | awk 'NR==2 {print $4}')"
+          echo "Docker Version: $(docker --version)"
+          echo "Node Version: $(node --version)"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "🎯 Configuration:"
+          echo "Wallet Count: ${{ inputs.wallet_count || '10' }}"
+          echo "Containers per Wallet: $CONTAINERS_PER_WALLET"
+          echo "Total Containers: $(( (${{ inputs.wallet_count || 10 }}) * $CONTAINERS_PER_WALLET ))"
+          echo "Batch Size: $BATCH_SIZE"
+          echo "Runtime Hours: $RUNTIME_HOURS"
+          echo "Reuse Wallets: ${{ inputs.reuse_wallets }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      
+      # ============================================
+      # 💰 WALLET MANAGEMENT
+      # ============================================
+      
+      - name: 💰 Handle Wallets
+        id: wallets
+        run: |
+          WALLET_FILE="wallets.json"
+          
+          if [[ "${{ inputs.reuse_wallets }}" == "true" && -f "$WALLET_FILE" ]]; then
+            echo "♻️  Reusing existing wallets from repository..."
+            WALLET_COUNT=$(jq '. | length' $WALLET_FILE)
+            echo "✅ Found $WALLET_COUNT existing wallets"
+          else
+            echo "🆕 Generating new wallets..."
+            cd scripts
+            
+            # Install dependencies if needed
+            if [ ! -d "node_modules" ]; then
+              npm install
+            fi
+            
+            # Generate wallets
+            node crypto-generator.js ${{ inputs.wallet_count || 10 }}
+            
+            # Move to root
+            mv wallets.json ../$WALLET_FILE
+            cd ..
+            
+            WALLET_COUNT=${{ inputs.wallet_count || 10 }}
+            echo "✅ Generated $WALLET_COUNT new wallets"
+          fi
+          
+          # Output for next steps
+          echo "wallet_count=$WALLET_COUNT" >> $GITHUB_OUTPUT
+          echo "total_containers=$(( $WALLET_COUNT * $CONTAINERS_PER_WALLET ))" >> $GITHUB_OUTPUT
+          
+          # Display first wallet (for verification)
+          echo ""
+          echo "📋 First wallet preview:"
+          jq '.[0] | {address: .address, private_key: (.private_key[:10] + "...")}' $WALLET_FILE
+      
+      # ============================================
+      # 🌐 PROXY SETUP
+      # ============================================
+      
+      - name: 📦 Install Proxy Dependencies
+        working-directory: ./proxy
+        run: |
+          echo "📦 Installing proxy dependencies..."
+          npm ci --production
+      
+      - name: ⚙️ Configure Proxy Environment
+        working-directory: ./proxy
+        run: |
+          echo "⚙️  Creating .env file..."
+          
+          cat > .env << 'EOF'
+          # Auto-generated by GitHub Actions
+          # Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          
+          NOVITA_API_KEYS=${{ secrets.NOVITA_API_KEYS }}
+          MODEL_MAP=${{ secrets.MODEL_MAP }}
+          PORT=${{ env.PROXY_PORT }}
+          RL_MODE=provider_only
+          NOVITA_RPM_PER_KEY=0
+          NOVITA_RPS_PER_KEY=0
+          FAILOVER_PENALTY_MS=1200
+          FAILOVER_BACKOFF_MS=0
+          PROXY_MIN_TPS=15
+          REQUEST_TIMEOUT_MS=120000
+          MAX_RETRIES=2
+          RETRY_BACKOFF_MS=250
+          NODE_ENV=production
+          EOF
+          
+          echo "✅ Environment configured"
+          
+          # Verify (without exposing secrets)
+          echo ""
+          echo "📋 Configuration check:"
+          echo "API Keys loaded: $(echo '${{ secrets.NOVITA_API_KEYS }}' | tr ',' '\n' | wc -l) keys"
+          echo "Port: ${{ env.PROXY_PORT }}"
+          echo "Rate limit mode: provider_only"
+      
+      - name: 🚀 Start Proxy Server
+        working-directory: ./proxy
+        run: |
+          echo "🚀 Starting proxy server..."
+          
+          # Start in background
+          nohup node index.js > proxy.log 2>&1 &
+          PROXY_PID=$!
+          echo $PROXY_PID > proxy.pid
+          
+          echo "Process ID: $PROXY_PID"
+          
+          # Wait for proxy to be ready
+          echo "⏳ Waiting for proxy to be ready..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:${{ env.PROXY_PORT }}/health > /dev/null 2>&1; then
+              echo "✅ Proxy is healthy!"
+              break
+            fi
+            
+            if [ $i -eq 30 ]; then
+              echo "❌ Proxy failed to start within 30 seconds"
+              echo "📋 Last 20 lines of proxy.log:"
+              tail -20 proxy.log
+              exit 1
+            fi
+            
+            echo "  Attempt $i/30..."
+            sleep 1
+          done
+          
+          # Display health status
+          echo ""
+          echo "📊 Proxy Health Check:"
+          curl -s http://localhost:${{ env.PROXY_PORT }}/health | jq .
+          
+          echo ""
+          echo "📊 Pool Status:"
+          curl -s http://localhost:${{ env.PROXY_PORT }}/pool/status | jq .
+      
+      # ============================================
+      # 🐳 DOCKER SETUP
+      # ============================================
+      
+      - name: 🐳 Setup Docker Environment
+        run: |
+          echo "🐳 Setting up Docker environment..."
+          
+          # Create network
+          docker network create dria-nodes 2>/dev/null || echo "Network already exists"
+          
+          # Pull image in advance (parallel download)
+          echo "📥 Pre-pulling Docker image..."
+          docker pull firstbatch/dkn-compute-node:latest
+          
+          echo "✅ Docker environment ready"
+      
+      - name: 🚀 Deploy DKN Containers
+        id: deploy
+        run: |
+          echo "🚀 Deploying DKN compute containers..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          WALLET_FILE="wallets.json"
+          WALLET_COUNT=$(jq '. | length' $WALLET_FILE)
+          TOTAL_CONTAINERS=$(( $WALLET_COUNT * $CONTAINERS_PER_WALLET ))
+          
+          echo "Configuration:"
+          echo "  Wallets: $WALLET_COUNT"
+          echo "  Containers per wallet: $CONTAINERS_PER_WALLET"
+          echo "  Total containers: $TOTAL_CONTAINERS"
+          echo "  Batch size: $BATCH_SIZE"
+          echo "  Pause between batches: $PAUSE_SECONDS seconds"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          
+          # DKN Models from secrets or default
+          DKN_MODELS="${{ secrets.DKN_MODELS }}"
+          if [ -z "$DKN_MODELS" ]; then
+            DKN_MODELS="llama3.2:1b-instruct-q4_K_M,llama3.1:8b-instruct-q4_K_M,qwen3:8b,gemma3:12b,gemma3:27b,qwen3:32b,llama3.3:70b-instruct-q4_K_M"
+          fi
+          
+          STARTED=0
+          FAILED=0
+          
+          # Loop through wallets
+          for (( w=0; w<$WALLET_COUNT; w++ )); do
+            WALLET_INDEX=$((w + 1))
+            
+            # Extract wallet data
+            ADDRESS=$(jq -r ".[$w].address" $WALLET_FILE)
+            PRIVKEY_RAW=$(jq -r ".[$w].private_key" $WALLET_FILE)
+            
+            # Remove 0x prefix
+            DKN_WALLET_SECRET_KEY="${PRIVKEY_RAW#0x}"
+            
+            # Short address for naming
+            ADDRESS_NO0X="${ADDRESS#0x}"
+            ADDR_SHORT="${ADDRESS_NO0X:0:6}"
+            
+            echo "📦 Wallet #$WALLET_INDEX ($ADDRESS)"
+            
+            # Deploy containers for this wallet
+            for (( i=1; i<=$CONTAINERS_PER_WALLET; i++ )); do
+              CONTAINER_NAME="compute_node_w${WALLET_INDEX}_${ADDR_SHORT}_$(printf '%02d' "$i")"
+              
+              # Check if already exists
+              if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+                echo "  ⚠️  Container $CONTAINER_NAME already exists, removing..."
+                docker rm -f $CONTAINER_NAME > /dev/null 2>&1
+              fi
+              
+              # Run container
+              if docker run -d \
+                --name "$CONTAINER_NAME" \
+                --network dria-nodes \
+                --restart on-failure:3 \
+                -e RUST_LOG="none,dkn_compute=info" \
+                -e DKN_WALLET_SECRET_KEY="$DKN_WALLET_SECRET_KEY" \
+                -e DKN_MODELS="$DKN_MODELS" \
+                -e OLLAMA_HOST="http://host.docker.internal" \
+                -e OLLAMA_PORT="${{ env.PROXY_PORT }}" \
+                -e OLLAMA_AUTO_PULL="false" \
+                --label "wallet_index=$WALLET_INDEX" \
+                --label "wallet_address=$ADDRESS" \
+                --label "github_run=${{ github.run_id }}" \
+                --add-host host.docker.internal:host-gateway \
+                firstbatch/dkn-compute-node:latest > /dev/null 2>&1; then
+                
+                echo "  ✅ Started: $CONTAINER_NAME"
+                STARTED=$((STARTED + 1))
+              else
+                echo "  ❌ Failed: $CONTAINER_NAME"
+                FAILED=$((FAILED + 1))
+              fi
+              
+              # Rate limiting: pause every BATCH_SIZE containers
+              if (( STARTED % $BATCH_SIZE == 0 )); then
+                RUNNING=$(docker ps --filter "name=compute_node" --format "{{.Names}}" | wc -l)
+                echo ""
+                echo "  ⏸️  Progress: $STARTED/$TOTAL_CONTAINERS started, $RUNNING running"
+                echo "  ⏳ Pausing for $PAUSE_SECONDS seconds..."
+                sleep $PAUSE_SECONDS
+                echo ""
+              fi
+            done
+          done
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Deployment Complete!"
+          echo "  Started: $STARTED"
+          echo "  Failed: $FAILED"
+          echo "  Total: $TOTAL_CONTAINERS"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # Output for next steps
+          echo "started=$STARTED" >> $GITHUB_OUTPUT
+          echo "failed=$FAILED" >> $GITHUB_OUTPUT
+      
+      - name: ✅ Verify Deployment
+        run: |
+          echo "🔍 Verifying deployment..."
+          echo ""
+          
+          # Count running containers
+          RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
+          RUNNING=$((RUNNING - 1))  # Exclude header
+          
+          # Count all containers (including stopped)
+          TOTAL=$(docker ps -a --filter "name=compute_node" | wc -l)
+          TOTAL=$((TOTAL - 1))
+          
+          echo "📊 Container Status:"
+          echo "  Running: $RUNNING"
+          echo "  Total: $TOTAL"
+          echo ""
+          
+          # Show resource usage
+          echo "💻 Resource Usage:"
+          free -h
+          echo ""
+          df -h /
+          echo ""
+          
+          # Sample container logs
+          echo "📋 Sample Container Logs (first container):"
+          FIRST_CONTAINER=$(docker ps --filter "name=compute_node" --format "{{.Names}}" | head -1)
+          if [ -n "$FIRST_CONTAINER" ]; then
+            echo "Container: $FIRST_CONTAINER"
+            docker logs --tail 10 $FIRST_CONTAINER 2>&1 || echo "No logs yet"
+          fi
+          
+          # Test proxy connectivity from container
+          echo ""
+          echo "🔗 Testing Proxy Connectivity from Container:"
+          if [ -n "$FIRST_CONTAINER" ]; then
+            docker exec $FIRST_CONTAINER sh -c "curl -sf http://host.docker.internal:${{ env.PROXY_PORT }}/health" | jq . || echo "❌ Proxy not reachable from container"
+          fi
+      
+      # ============================================
+      # 🔄 RUNTIME MONITORING LOOP
+      # ============================================
+      
+      - name: 🔄 Runtime Monitoring Loop
+        timeout-minutes: ${{ fromJSON(inputs.runtime_hours || '5.5') * 60 }}
+        run: |
+          echo "🔄 Starting runtime monitoring loop..."
+          echo "⏱️  Will run for ${{ env.RUNTIME_HOURS }} hours"
+          echo ""
+          
+          START_TIME=$(date +%s)
+          END_TIME=$((START_TIME + $(echo "${{ env.RUNTIME_HOURS }} * 3600" | bc | cut -d. -f1)))
+          REPORT_INTERVAL=300  # Report every 5 minutes
+          LAST_REPORT=$START_TIME
+          
+          while true; do
+            CURRENT_TIME=$(date +%s)
+            ELAPSED=$((CURRENT_TIME - START_TIME))
+            REMAINING=$((END_TIME - CURRENT_TIME))
+            
+            # Check if time's up
+            if [ $REMAINING -le 0 ]; then
+              echo ""
+              echo "⏰ Runtime limit reached. Preparing for graceful shutdown..."
+              break
+            fi
+            
+            # Report every interval
+            if [ $((CURRENT_TIME - LAST_REPORT)) -ge $REPORT_INTERVAL ]; then
+              RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
+              RUNNING=$((RUNNING - 1))
+              
+              ELAPSED_MIN=$((ELAPSED / 60))
+              REMAINING_MIN=$((REMAINING / 60))
+              
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "⏱️  Runtime Report ($(date -u '+%Y-%m-%d %H:%M:%S UTC'))"
+              echo "  Elapsed: ${ELAPSED_MIN} minutes"
+              echo "  Remaining: ${REMAINING_MIN} minutes"
+              echo "  Running Containers: $RUNNING"
+              echo ""
+              
+              # Resource usage
+              echo "💻 Resources:"
+              echo "  RAM: $(free -h | awk '/^Mem:/ {print "Used: "$3" / Total: "$2" ("$3/$2*100"%)"}')"
+              echo "  CPU: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}')% user"
+              echo ""
+              
+              # Proxy health
+              echo "🌐 Proxy Health:"
+              curl -s http://localhost:${{ env.PROXY_PORT }}/health | jq -r '"  Status: " + (.ok | tostring) + " | Keys: " + (.pool.keys | tostring)' || echo "  ⚠️  Proxy not responding"
+              
+              # Container health sample (check 5 random containers)
+              echo ""
+              echo "🐳 Container Health (sample):"
+              docker ps --filter "name=compute_node" --format "{{.Names}}" | shuf | head -5 | while read container; do
+                STATUS=$(docker inspect -f '{{.State.Status}}' $container 2>/dev/null || echo "unknown")
+                RESTARTS=$(docker inspect -f '{{.RestartCount}}' $container 2>/dev/null || echo "?")
+                echo "  $container: $STATUS (restarts: $RESTARTS)"
+              done
+              
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo ""
+              
+              LAST_REPORT=$CURRENT_TIME
+            fi
+            
+            # Check for dead containers and restart if needed
+            DEAD=$(docker ps -a --filter "name=compute_node" --filter "status=exited" --format "{{.Names}}" | wc -l)
+            if [ $DEAD -gt 0 ]; then
+              echo "⚠️  Found $DEAD stopped containers, attempting restart..."
+              docker ps -a --filter "name=compute_node" --filter "status=exited" --format "{{.Names}}" | while read container; do
+                docker start $container > /dev/null 2>&1 && echo "  ♻️  Restarted: $container"
+              done
+            fi
+            
+            # Sleep for 1 minute
+            sleep 60
+          done
+          
+          echo "✅ Monitoring loop completed"
+      
+      # ============================================
+      # 🛑 GRACEFUL SHUTDOWN
+      # ============================================
+      
+      - name: 🛑 Graceful Shutdown
+        if: always()
+        run: |
+          echo "🛑 Initiating graceful shutdown..."
+          echo ""
+          
+          # Final stats
+          echo "📊 Final Statistics:"
+          RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
+          RUNNING=$((RUNNING - 1))
+          
+          TOTAL=$(docker ps -a --filter "name=compute_node" | wc -l)
+          TOTAL=$((TOTAL - 1))
+          
+          echo "  Total containers deployed: $TOTAL"
+          echo "  Still running: $RUNNING"
+          echo ""
+          
+          # Export final logs from proxy
+          if [ -f proxy/proxy.log ]; then
+            echo "📋 Proxy Final Logs (last 50 lines):"
+            tail -50 proxy/proxy.log
+          fi
+          
+          # Stop containers gracefully
+          echo ""
+          echo "🛑 Stopping containers..."
+          docker ps --filter "name=compute_node" -q | xargs -r docker stop -t 10
+          
+          # Stop proxy
+          if [ -f proxy/proxy.pid ]; then
+            echo "🛑 Stopping proxy..."
+            kill $(cat proxy/proxy.pid) 2>/dev/null || true
+          fi
+          
+          # Cleanup
+          echo "🧹 Cleaning up..."
+          docker ps -a --filter "name=compute_node" -q | xargs -r docker rm -f
+          docker network rm dria-nodes 2>/dev/null || true
+          
+          echo "✅ Shutdown complete"
+      
+      # ============================================
+      # 💾 SAVE STATE
+      # ============================================
+      
+      - name: 💾 Commit Updated Wallets
+        if: always()
+        run: |
+          echo "💾 Saving wallets.json to repository..."
+          
+          # Configure git
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # Add wallets
+          git add wallets.json
+          
+          # Commit if changed
+          if git diff --staged --quiet; then
+            echo "ℹ️  No changes to wallets.json"
+          else
+            git commit -m "🔄 Auto-update wallets.json [run ${{ github.run_id }}]"
+            git push
+            echo "✅ Wallets committed and pushed"
+          fi
+      
+      - name: 📦 Save Logs as Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            proxy/proxy.log
+            proxy/.env
+          retention-days: 7
+          if-no-files-found: warn
+      
+      # ============================================
+      # 📱 NOTIFICATIONS
+      # ============================================
+      
+      - name: 📱 Send Success Notification
+        if: success() && secrets.TELEGRAM_BOT_TOKEN != ''
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          format: markdown
+          message: |
+            ✅ *DKN Runtime Completed Successfully*
+            
+            *Run:* #${{ github.run_number }}
+            *Duration:* ${{ env.RUNTIME_HOURS }} hours
+            *Containers:* ${{ steps.deploy.outputs.started }}
+            *Wallets:* ${{ steps.wallets.outputs.wallet_count }}
+            
+            *Repository:* `${{ github.repository }}`
+            *Workflow:* [View Details](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+      
+      - name: 📱 Send Failure Notification
+        if: failure() && secrets.TELEGRAM_BOT_TOKEN != ''
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          format: markdown
+          message: |
+            ❌ *DKN Runtime Failed*
+            
+            *Run:* #${{ github.run_number }}
+            *Error:* Check workflow logs
+            
+            *Workflow:* [View Details](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
