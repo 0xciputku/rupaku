@@ -784,7 +784,7 @@ jobs:
       # ============================================
       
       - name: 📱 Send Success Notification
-        if: success() && secrets.TELEGRAM_BOT_TOKEN
+        if: ${{ success() && secrets.TELEGRAM_BOT_TOKEN != '' }}
         run: |
           echo "📱 Sending Telegram notification..."
           
@@ -792,34 +792,50 @@ jobs:
           WALLET_COUNT=$(jq '. | length' wallets.json 2>/dev/null || echo "0")
           FIRST_WALLET=$(jq -r '.[0].address' wallets.json 2>/dev/null || echo "N/A")
           
-          # Create message
-          MESSAGE="✅ *DKN Runtime Completed Successfully!*
+          # Create message (escape quotes properly)
+          cat > /tmp/message.txt << 'EOFMSG'
+✅ *DKN Runtime Completed Successfully!*
 
-          *📊 Summary:*
-          • Run: #${{ github.run_number }}
-          • Duration: ${{ env.RUNTIME_HOURS }} hours
-          • Containers Started: ${{ steps.deploy.outputs.started }}
-          • Containers Failed: ${{ steps.deploy.outputs.failed }}
+*📊 Summary:*
+• Run: #${{ github.run_number }}
+• Duration: ${{ env.RUNTIME_HOURS }} hours
+• Containers Started: ${{ steps.deploy.outputs.started }}
+• Containers Failed: ${{ steps.deploy.outputs.failed }}
 
-          *💰 Wallets:*
-          • Total: ${WALLET_COUNT} wallets
-          • First: \`${FIRST_WALLET:0:10}...${FIRST_WALLET: -8}\`
-          • File: Attached below 📄
+*💰 Wallets:*
+• Total: WALLET_COUNT_PLACEHOLDER wallets
+• First: `FIRST_WALLET_PLACEHOLDER`
+• File: Attached below 📄
 
-          *🕐 Time:*
-          • Finished: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+*🕐 Time:*
+• Finished: TIME_PLACEHOLDER
 
-          *📍 Repository:*
-          \`${{ github.repository }}\`
+*📍 Repository:*
+`${{ github.repository }}`
 
-          *🔗 Links:*
-          • [View Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          • [View wallets.json](${{ github.server_url }}/${{ github.repository }}/blob/main/wallets.json)"
+*🔗 Links:*
+• [View Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+• [View wallets.json](${{ github.server_url }}/${{ github.repository }}/blob/main/wallets.json)
+EOFMSG
 
+          # Replace placeholders
+          sed -i "s/WALLET_COUNT_PLACEHOLDER/${WALLET_COUNT}/g" /tmp/message.txt
+          sed -i "s/FIRST_WALLET_PLACEHOLDER/${FIRST_WALLET:0:10}...${FIRST_WALLET: -8}/g" /tmp/message.txt
+          sed -i "s/TIME_PLACEHOLDER/$(date -u '+%Y-%m-%d %H:%M:%S UTC')/g" /tmp/message.txt
+          
+          MESSAGE=$(cat /tmp/message.txt)
+          
           # Send text message
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${{ secrets.TELEGRAM_CHAT_ID }}\",\"text\":\"${MESSAGE}\",\"parse_mode\":\"Markdown\",\"disable_web_page_preview\":true}"
+            -d @- << EOF
+{
+  "chat_id": "${{ secrets.TELEGRAM_CHAT_ID }}",
+  "text": $(echo "$MESSAGE" | jq -Rs .),
+  "parse_mode": "Markdown",
+  "disable_web_page_preview": true
+}
+EOF
           
           # Send wallets.json as file
           if [ -f wallets.json ]; then
@@ -834,30 +850,40 @@ jobs:
           fi
       
       - name: 📱 Send Failure Notification
-        if: failure() && secrets.TELEGRAM_BOT_TOKEN
+        if: ${{ failure() && secrets.TELEGRAM_BOT_TOKEN != '' }}
         run: |
           echo "📱 Sending failure notification..."
           
-          MESSAGE="❌ *DKN Runtime Failed!*
+          cat > /tmp/failure_message.txt << 'EOFMSG'
+❌ *DKN Runtime Failed!*
 
-          *📊 Details:*
-          • Run: #${{ github.run_number }}
-          • Repository: \`${{ github.repository }}\`
-          • Branch: \`${{ github.ref_name }}\`
+*📊 Details:*
+• Run: #${{ github.run_number }}
+• Repository: `${{ github.repository }}`
+• Branch: `${{ github.ref_name }}`
 
-          *🕐 Time:*
-          • Failed at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+*🕐 Time:*
+• Failed at: TIME_PLACEHOLDER
 
-          *⚠️ Action Required:*
-          Check workflow logs to identify the issue.
+*⚠️ Action Required:*
+Check workflow logs to identify the issue.
 
-          *🔗 Links:*
-          [View Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+*🔗 Links:*
+[View Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+EOFMSG
 
+          sed -i "s/TIME_PLACEHOLDER/$(date -u '+%Y-%m-%d %H:%M:%S UTC')/g" /tmp/failure_message.txt
+          
+          MESSAGE=$(cat /tmp/failure_message.txt)
+          
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${{ secrets.TELEGRAM_CHAT_ID }}\",\"text\":\"${MESSAGE}\",\"parse_mode\":\"Markdown\"}"
+            -d @- << EOF
+{
+  "chat_id": "${{ secrets.TELEGRAM_CHAT_ID }}",
+  "text": $(echo "$MESSAGE" | jq -Rs .),
+  "parse_mode": "Markdown"
+}
+EOF
           
           echo "✅ Failure notification sent"
-      
-   
