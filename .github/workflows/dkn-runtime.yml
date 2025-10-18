@@ -790,7 +790,7 @@ jobs:
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           if [ -z "$BOT_TOKEN" ]; then
-            echo "ℹ️ Telegram not configured, skipping notification"
+            echo "ℹ️ Telegram not configured, skipping"
             exit 0
           fi
           
@@ -798,49 +798,36 @@ jobs:
           
           WALLET_COUNT=$(jq '. | length' wallets.json 2>/dev/null || echo "0")
           FIRST_WALLET=$(jq -r '.[0].address' wallets.json 2>/dev/null || echo "N/A")
+          TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
           
-          # Build message in a variable
-          cat > /tmp/tg_message.txt << 'MSGEOF'
-✅ *DKN Runtime Completed!*
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d parse_mode="Markdown" \
+            -d disable_web_page_preview=true \
+            -d text="✅ *DKN Runtime Completed!*
 
 *📊 Summary:*
-MSGEOF
-          
-          cat >> /tmp/tg_message.txt << MSGEOF
 • Run: #${{ github.run_number }}
 • Duration: ${{ env.RUNTIME_HOURS }} hours
 • Containers: ${{ steps.deploy.outputs.started }}
 
 *💰 Wallets:*
 • Total: ${WALLET_COUNT} wallets
-• First: ${FIRST_WALLET:0:10}...${FIRST_WALLET: -8}
-• File: See attachment below
+• First: \`${FIRST_WALLET:0:10}...${FIRST_WALLET: -8}\`
 
 *🕐 Finished:*
-$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+${TIMESTAMP}
 
 *🔗 Links:*
 [View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-[View wallets.json](${{ github.server_url }}/${{ github.repository }}/blob/main/wallets.json)
-MSGEOF
-          
-          MESSAGE=$(cat /tmp/tg_message.txt)
-          
-          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${CHAT_ID}" \
-            -d "parse_mode=Markdown" \
-            -d "disable_web_page_preview=true" \
-            --data-urlencode "text=${MESSAGE}"
+[wallets.json](${{ github.server_url }}/${{ github.repository }}/blob/main/wallets.json)"
           
           if [ -f wallets.json ]; then
             curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
-              -F "chat_id=${CHAT_ID}" \
-              -F "document=@wallets.json" \
-              -F "caption=💰 Wallets from run #${{ github.run_number }} (Total: ${WALLET_COUNT} wallets)"
-            
-            echo "✅ Notification sent with wallets.json"
-          else
-            echo "⚠️ wallets.json not found"
+              -F chat_id="${CHAT_ID}" \
+              -F document=@wallets.json \
+              -F caption="💰 Wallets from run #${{ github.run_number }} | Total: ${WALLET_COUNT}"
+            echo "✅ Sent with wallets.json"
           fi
       
       - name: 📱 Send Failure Notification
@@ -853,34 +840,25 @@ MSGEOF
             exit 0
           fi
           
-          echo "📱 Sending failure notification..."
-          
-          cat > /tmp/tg_failure.txt << 'MSGEOF'
-❌ *DKN Runtime Failed!*
-
-*📊 Details:*
-MSGEOF
-          
-          cat >> /tmp/tg_failure.txt << MSGEOF
-• Run: #${{ github.run_number }}
-• Repository: ${{ github.repository }}
-• Branch: ${{ github.ref_name }}
-
-*🕐 Failed at:*
-$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-
-*⚠️ Action Required:*
-Check workflow logs for details.
-
-*🔗 Link:*
-[View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-MSGEOF
-          
-          MESSAGE=$(cat /tmp/tg_failure.txt)
+          TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
           
           curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${CHAT_ID}" \
-            -d "parse_mode=Markdown" \
-            --data-urlencode "text=${MESSAGE}"
+            -d chat_id="${CHAT_ID}" \
+            -d parse_mode="Markdown" \
+            -d text="❌ *DKN Runtime Failed!*
+
+*📊 Details:*
+• Run: #${{ github.run_number }}
+• Repository: \`${{ github.repository }}\`
+• Branch: \`${{ github.ref_name }}\`
+
+*🕐 Failed at:*
+${TIMESTAMP}
+
+*⚠️ Action Required:*
+Check logs for error details
+
+*🔗 Link:*
+[View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           
           echo "✅ Failure notification sent"
