@@ -22,11 +22,11 @@ jobs:
       # 🔧 CONFIGURATION (EDIT HERE)
       # ============================================
       WALLET_COUNT: '15'
-      CONTAINERS_PER_WALLET: '50'
+      CONTAINERS_PER_WALLET: '20'
       RUNTIME_HOURS: '5.8'
       REUSE_WALLETS: 'true'
       
-      BATCH_SIZE: '30'
+      BATCH_SIZE: '25'
       PAUSE_SECONDS: '60'
       PROXY_PORT: '14441'
       
