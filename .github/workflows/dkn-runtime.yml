@@ -378,92 +378,185 @@ jobs:
           fi
       
       # ============================================
-      # 🔄 RUNTIME MONITORING LOOP
+      # 💾 COMMIT WALLETS FIRST (PRIORITY!)
       # ============================================
       
-      - name: 🔄 Runtime Monitoring Loop
-        timeout-minutes: 350  # 5.83 hours (fixed timeout)
-        env:
-          MONITOR_URL: ${{ secrets.MONITOR_VPS_URL }}
-          MONITOR_TOKEN: ${{ secrets.MONITOR_API_TOKEN }}
-          RUNNER_ID: ${{ steps.register.outputs.runner_id }}
-          RUNTIME_HOURS: ${{ inputs.runtime_hours || '5.5' }}
+      - name: 💾 Save Wallets Immediately
         run: |
-          echo "🔄 Starting runtime monitoring loop..."
-          echo "⏱️  Will run for $RUNTIME_HOURS hours"
+          echo "💾 Committing wallets.json to repository (PRIORITY)..."
+          
+          # Configure git
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # Add wallets
+          git add wallets.json
+          
+          # Commit if changed
+          if git diff --staged --quiet; then
+            echo "ℹ️  No changes to wallets.json"
+          else
+            git commit -m "🔄 Auto-update wallets.json [run ${{ github.run_id }}]"
+            git push
+            echo "✅ Wallets committed and pushed"
+          fi
+      
+      # ============================================
+      # 🔍 CONTAINER DIAGNOSTICS
+      # ============================================
+      
+      - name: 🔍 Show Container Logs (Diagnostic)
+        run: |
+          echo "🔍 Container Diagnostics"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
           
+          # Wait a bit for containers to settle
+          sleep 10
+          
+          # Count containers
+          RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
+          RUNNING=$((RUNNING - 1))
+          
+          TOTAL=$(docker ps -a --filter "name=compute_node" | wc -l)
+          TOTAL=$((TOTAL - 1))
+          
+          echo "📊 Container Status:"
+          echo "  Running: $RUNNING / $TOTAL"
+          echo ""
+          
+          # Get first container
+          FIRST_CONTAINER=$(docker ps -a --filter "name=compute_node" --format "{{.Names}}" | head -1)
+          
+          if [ -n "$FIRST_CONTAINER" ]; then
+            echo "📋 Sample Container: $FIRST_CONTAINER"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
+            # Container state
+            echo "🔍 Container State:"
+            docker inspect $FIRST_CONTAINER | jq '.[0].State' 2>/dev/null || echo "N/A"
+            
+            echo ""
+            echo "📋 Container Logs (First 200 lines):"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            docker logs --tail 200 $FIRST_CONTAINER 2>&1 || echo "No logs available"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          else
+            echo "⚠️  No containers found"
+          fi
+          
+          echo ""
+          echo "🔗 Proxy Health Check:"
+          curl -s http://localhost:${{ env.PROXY_PORT }}/health | jq . 2>/dev/null || echo "⚠️ Proxy not responding"
+          
+          echo ""
+          echo "🔗 Testing Proxy from Container Network:"
+          docker run --rm \
+            --network dria-nodes \
+            --add-host host.docker.internal:host-gateway \
+            curlimages/curl:latest \
+            curl -s -m 5 http://host.docker.internal:${{ env.PROXY_PORT }}/health 2>&1 || echo "❌ Cannot reach proxy from container network"
+      
+      # ============================================
+      # ⏰ RUNTIME (Simple Sleep, No Auto-Restart)
+      # ============================================
+      
+      - name: ⏰ Runtime Period
+        timeout-minutes: 350
+        run: |
+          echo "⏰ Starting runtime period..."
+          echo "Duration: ${{ env.RUNTIME_HOURS }} hours"
+          echo ""
+          
+          RUNTIME_SECONDS=$(echo "${{ env.RUNTIME_HOURS }} * 3600" | bc | cut -d. -f1)
           START_TIME=$(date +%s)
-          END_TIME=$(echo "$START_TIME + ($RUNTIME_HOURS * 3600)" | bc | cut -d. -f1)
+          END_TIME=$((START_TIME + RUNTIME_SECONDS))
+          
           REPORT_INTERVAL=300  # Report every 5 minutes
-          LAST_REPORT=$START_TIME
+          NEXT_REPORT=$((START_TIME + REPORT_INTERVAL))
+          
+          echo "🕐 Start time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "🕐 End time: $(date -u -d "@$END_TIME" '+%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
           while true; do
             CURRENT_TIME=$(date +%s)
-            ELAPSED=$((CURRENT_TIME - START_TIME))
-            REMAINING=$((END_TIME - CURRENT_TIME))
             
             # Check if time's up
-            if [ $REMAINING -le 0 ]; then
+            if [ $CURRENT_TIME -ge $END_TIME ]; then
               echo ""
-              echo "⏰ Runtime limit reached. Preparing for graceful shutdown..."
+              echo "⏰ Runtime period completed"
               break
             fi
             
-            # Report every interval
-            if [ $((CURRENT_TIME - LAST_REPORT)) -ge $REPORT_INTERVAL ]; then
-              RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
-              RUNNING=$((RUNNING - 1))
+            # Periodic report (every 5 minutes)
+            if [ $CURRENT_TIME -ge $NEXT_REPORT ]; then
+              ELAPSED=$((CURRENT_TIME - START_TIME))
+              REMAINING=$((END_TIME - CURRENT_TIME))
               
               ELAPSED_MIN=$((ELAPSED / 60))
               REMAINING_MIN=$((REMAINING / 60))
               
+              RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
+              RUNNING=$((RUNNING - 1))
+              
+              echo ""
               echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-              echo "⏱️  Runtime Report ($(date -u '+%Y-%m-%d %H:%M:%S UTC'))"
+              echo "📊 Runtime Report ($(date -u '+%Y-%m-%d %H:%M:%S UTC'))"
               echo "  Elapsed: ${ELAPSED_MIN} minutes"
               echo "  Remaining: ${REMAINING_MIN} minutes"
-              echo "  Running Containers: $RUNNING"
+              echo "  Containers Running: $RUNNING"
               echo ""
-              
-              # Resource usage
               echo "💻 Resources:"
-              echo "  RAM: $(free -h | awk '/^Mem:/ {print "Used: "$3" / Total: "$2}')"
+              free -h | awk '/^Mem:/ {print "  RAM Used: "$3" / "$2" ("int($3/$2*100)"%)"}'
               echo "  CPU: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}')% user"
               echo ""
-              
-              # Proxy health
-              echo "🌐 Proxy Health:"
-              curl -s http://localhost:${{ env.PROXY_PORT }}/health | jq -r '"  Status: " + (.ok | tostring) + " | Keys: " + (.pool.keys | tostring)' 2>/dev/null || echo "  ⚠️  Proxy not responding"
-              
-              # Container health sample (check 5 random containers)
-              echo ""
-              echo "🐳 Container Health (sample):"
-              docker ps --filter "name=compute_node" --format "{{.Names}}" | shuf | head -5 | while read container; do
-                STATUS=$(docker inspect -f '{{.State.Status}}' $container 2>/dev/null || echo "unknown")
-                RESTARTS=$(docker inspect -f '{{.RestartCount}}' $container 2>/dev/null || echo "?")
-                echo "  $container: $STATUS (restarts: $RESTARTS)"
-              done
-              
+              echo "🌐 Proxy Status:"
+              curl -s http://localhost:${{ env.PROXY_PORT }}/health | jq -r '"  OK: " + (.ok | tostring) + " | Keys: " + (.pool.keys | tostring)' 2>/dev/null || echo "  ⚠️ Not responding"
               echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-              echo ""
               
-              LAST_REPORT=$CURRENT_TIME
-            fi
-            
-            # Check for dead containers and restart if needed
-            DEAD=$(docker ps -a --filter "name=compute_node" --filter "status=exited" --format "{{.Names}}" | wc -l)
-            if [ $DEAD -gt 0 ]; then
-              echo "⚠️  Found $DEAD stopped containers, attempting restart..."
-              docker ps -a --filter "name=compute_node" --filter "status=exited" --format "{{.Names}}" | while read container; do
-                docker start $container > /dev/null 2>&1 && echo "  ♻️  Restarted: $container"
-              done
+              NEXT_REPORT=$((CURRENT_TIME + REPORT_INTERVAL))
             fi
             
             # Sleep for 1 minute
             sleep 60
           done
           
-          echo "✅ Monitoring loop completed"
+          echo ""
+          echo "✅ Runtime period finished"
+      
+      # ============================================
+      # 📊 FINAL STATISTICS
+      # ============================================
+      
+      - name: 📊 Final Statistics
+        if: always()
+        run: |
+          echo "📊 Final Statistics"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
+          RUNNING=$((RUNNING - 1))
+          
+          TOTAL=$(docker ps -a --filter "name=compute_node" | wc -l)
+          TOTAL=$((TOTAL - 1))
+          
+          echo "  Total Containers: $TOTAL"
+          echo "  Still Running: $RUNNING"
+          echo "  Stopped/Failed: $((TOTAL - RUNNING))"
+          echo ""
+          
+          # Show container status breakdown
+          echo "📋 Container Status Breakdown:"
+          docker ps -a --filter "name=compute_node" --format "table {{.Names}}\t{{.Status}}\t{{.State}}" | head -20
+          
+          echo ""
+          echo "💻 Final Resource Usage:"
+          free -h
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       
       # ============================================
       # 🛑 GRACEFUL SHUTDOWN
