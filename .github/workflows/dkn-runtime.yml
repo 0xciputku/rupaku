@@ -1,13 +1,13 @@
 name: 🚀 DKN Compute Runtime
 
 on:
-  workflow_dispatch:  # Manual trigger (tanpa inputs)
+  workflow_dispatch:
   
   schedule:
     - cron: '*/10 * * * *'
 
 permissions:
-  contents: read
+  contents: write  # Need write for git commit
   actions: read
 
 jobs:
@@ -20,25 +20,25 @@ jobs:
       # ============================================
       # 🔧 CONFIGURATION (EDIT HERE)
       # ============================================
-      WALLET_COUNT: '15'                    # Jumlah wallet
-      CONTAINERS_PER_WALLET: '20'           # Containers per wallet (RECOMMENDED: 20)
-      RUNTIME_HOURS: '5.5'                  # Runtime duration (max 5.9)
-      REUSE_WALLETS: 'true'                 # true = reuse from artifacts, false = generate new
+      WALLET_COUNT: '1'
+      CONTAINERS_PER_WALLET: '10'
+      RUNTIME_HOURS: '5.5'
+      REUSE_WALLETS: 'true'
       
-      # Advanced settings (optional)
-      BATCH_SIZE: '10'                      # Deploy batch size
-      PAUSE_SECONDS: '60'                   # Pause between batches
-      PROXY_PORT: '14441'                   # Proxy port
-            
+      BATCH_SIZE: '30'
+      PAUSE_SECONDS: '60'
+      PROXY_PORT: '14441'
+      
     steps:
       # ============================================
-      # 📦 SETUP PHASE
+      # 📦 SETUP
       # ============================================
       
       - name: 📦 Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for git operations
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
       
       - name: 🔧 Setup Node.js
         uses: actions/setup-node@v4
@@ -49,31 +49,26 @@ jobs:
             proxy/package-lock.json
             scripts/package-lock.json
       
-      - name: 📊 Display Runner Info
+      - name: 📊 Display Configuration
         run: |
-          echo "🖥️  Runner Information:"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "OS: $(lsb_release -d | cut -f2)"
-          echo "Kernel: $(uname -r)"
-          echo "CPU Cores: $(nproc)"
-          echo "Total RAM: $(free -h | awk '/^Mem:/ {print $2}')"
-          echo "Available RAM: $(free -h | awk '/^Mem:/ {print $7}')"
-          echo "Disk Space: $(df -h / | awk 'NR==2 {print $4}')"
-          echo "Docker Version: $(docker --version)"
-          echo "Node Version: $(node --version)"
+          echo "🎯 Configuration"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Trigger: ${{ github.event_name }}"
+          echo "Wallet Count: $WALLET_COUNT"
+          echo "Containers/Wallet: $CONTAINERS_PER_WALLET"
+          echo "Total: $(( $WALLET_COUNT * $CONTAINERS_PER_WALLET ))"
+          echo "Runtime: $RUNTIME_HOURS hours"
+          echo "Reuse Wallets: $REUSE_WALLETS"
           echo ""
-          echo "🎯 Configuration:"
-          echo "Wallet Count: ${{ inputs.wallet_count || '10' }}"
-          echo "Containers per Wallet: $CONTAINERS_PER_WALLET"
-          echo "Total Containers: $(( (${{ inputs.wallet_count || 10 }}) * $CONTAINERS_PER_WALLET ))"
-          echo "Batch Size: $BATCH_SIZE"
-          echo "Runtime Hours: $RUNTIME_HOURS"
-          echo "Reuse Wallets: ${{ inputs.reuse_wallets }}"
+          echo "System:"
+          echo "OS: $(lsb_release -d | cut -f2)"
+          echo "RAM: $(free -h | awk '/^Mem:/ {print $2}')"
+          echo "Docker: $(docker --version | cut -d' ' -f3 | cut -d',' -f1)"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       
       # ============================================
-      # 💰 WALLET MANAGEMENT
+      # 💰 WALLET MANAGEMENT (GIT VERSION)
       # ============================================
       
       - name: 💰 Handle Wallets
@@ -81,38 +76,79 @@ jobs:
         run: |
           WALLET_FILE="wallets.json"
           
-          if [[ "${{ inputs.reuse_wallets }}" == "true" && -f "$WALLET_FILE" ]]; then
-            echo "♻️  Reusing existing wallets from repository..."
-            WALLET_COUNT=$(jq '. | length' $WALLET_FILE)
-            echo "✅ Found $WALLET_COUNT existing wallets"
+          # Check if wallets.json exists in repo
+          if [[ "$REUSE_WALLETS" == "true" && -f "$WALLET_FILE" ]]; then
+            echo "♻️  Reusing wallets from repository"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
+            ACTUAL_COUNT=$(jq '. | length' $WALLET_FILE)
+            echo "✅ Loaded $ACTUAL_COUNT wallets from repo"
+            echo "📅 Wallets are version controlled (git)"
+            
           else
-            echo "🆕 Generating new wallets..."
+            echo "🆕 Generating new wallets"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
             cd scripts
-            
-            # Install dependencies if needed
-            if [ ! -d "node_modules" ]; then
-              npm install
-            fi
-            
-            # Generate wallets
-            node crypto-generator.js ${{ inputs.wallet_count || 10 }}
-            
-            # Move to root
+            [ ! -d "node_modules" ] && npm install
+            node crypto-generator.js $WALLET_COUNT
             mv wallets.json ../$WALLET_FILE
             cd ..
             
-            WALLET_COUNT=${{ inputs.wallet_count || 10 }}
-            echo "✅ Generated $WALLET_COUNT new wallets"
+            ACTUAL_COUNT=$WALLET_COUNT
+            echo "✅ Generated $ACTUAL_COUNT new wallets"
           fi
           
-          # Output for next steps
-          echo "wallet_count=$WALLET_COUNT" >> $GITHUB_OUTPUT
-          echo "total_containers=$(( $WALLET_COUNT * $CONTAINERS_PER_WALLET ))" >> $GITHUB_OUTPUT
+          echo "wallet_count=$ACTUAL_COUNT" >> $GITHUB_OUTPUT
           
-          # Display first wallet (for verification)
           echo ""
           echo "📋 First wallet preview:"
-          jq '.[0] | {address: .address, private_key: (.private_key[:10] + "...")}' $WALLET_FILE
+          jq '.[0] | {address: .address, private_key: (.private_key[:10] + "..." + .private_key[-6:])}' $WALLET_FILE
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      
+      # ============================================
+      # 💾 COMMIT WALLETS TO REPO
+      # ============================================
+      
+      - name: 💾 Commit Wallets to Repository
+        if: always()
+        run: |
+          echo "💾 Saving wallets to repository..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # Configure git
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # Check if wallets.json exists
+          if [ ! -f "wallets.json" ]; then
+            echo "⚠️  wallets.json not found, skipping commit"
+            exit 0
+          fi
+          
+          # Add wallets.json
+          git add wallets.json
+          
+          # Check if there are changes
+          if git diff --staged --quiet; then
+            echo "ℹ️  No changes to wallets.json"
+            echo "   Wallets already up-to-date in repo"
+          else
+            # Commit changes
+            WALLET_COUNT=$(jq '. | length' wallets.json)
+            git commit -m "🔄 Auto-update wallets.json (${WALLET_COUNT} wallets) [run #${{ github.run_number }}]"
+            
+            # Push to repo
+            git push
+            
+            echo "✅ Wallets committed to repository"
+            echo "📊 Wallets: $WALLET_COUNT"
+            echo "🔒 Repo: Private (secure)"
+            echo "📅 Commit: Run #${{ github.run_number }}"
+          fi
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       
       # ============================================
       # 🌐 PROXY SETUP
@@ -123,722 +159,414 @@ jobs:
         run: |
           echo "📦 Installing proxy dependencies..."
           npm ci --production
+          echo "✅ Installed"
       
-      - name: ⚙️ Configure Proxy Environment
+      - name: ⚙️ Configure Proxy
         working-directory: ./proxy
         run: |
           echo "⚙️  Creating .env file..."
           
-          cat > .env << 'EOF'
-          # Auto-generated by GitHub Actions
-          # Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          
+          cat > .env << EOF
           NOVITA_API_KEYS=${{ secrets.NOVITA_API_KEYS }}
           MODEL_MAP=${{ secrets.MODEL_MAP }}
-          PORT=${{ env.PROXY_PORT }}
+          PORT=$PROXY_PORT
           RL_MODE=provider_only
           NOVITA_RPM_PER_KEY=0
           NOVITA_RPS_PER_KEY=0
-          FAILOVER_PENALTY_MS=1200
-          FAILOVER_BACKOFF_MS=0
           PROXY_MIN_TPS=15
           REQUEST_TIMEOUT_MS=120000
-          MAX_RETRIES=2
-          RETRY_BACKOFF_MS=250
           NODE_ENV=production
           EOF
           
-          echo "✅ Environment configured"
-          
-          # Verify (without exposing secrets)
-          echo ""
-          echo "📋 Configuration check:"
-          echo "API Keys loaded: $(echo '${{ secrets.NOVITA_API_KEYS }}' | tr ',' '\n' | wc -l) keys"
-          echo "Port: ${{ env.PROXY_PORT }}"
-          echo "Rate limit mode: provider_only"
+          echo "✅ Configured"
       
-      - name: 🚀 Start Proxy Server
+      - name: 🚀 Start Proxy
         working-directory: ./proxy
         run: |
           echo "🚀 Starting proxy server..."
           
-          # Start in background
           nohup node index.js > proxy.log 2>&1 &
-          PROXY_PID=$!
-          echo $PROXY_PID > proxy.pid
+          echo $! > proxy.pid
           
-          echo "Process ID: $PROXY_PID"
-          
-          # Wait for proxy to be ready
-          echo "⏳ Waiting for proxy to be ready..."
+          echo "⏳ Waiting for proxy..."
           for i in {1..30}; do
-            if curl -sf http://localhost:${{ env.PROXY_PORT }}/health > /dev/null 2>&1; then
-              echo "✅ Proxy is healthy!"
+            if curl -sf http://localhost:$PROXY_PORT/health > /dev/null 2>&1; then
+              echo "✅ Proxy ready"
               break
             fi
-            
-            if [ $i -eq 30 ]; then
-              echo "❌ Proxy failed to start within 30 seconds"
-              echo "📋 Last 20 lines of proxy.log:"
-              tail -20 proxy.log
-              exit 1
-            fi
-            
-            echo "  Attempt $i/30..."
+            [ $i -eq 30 ] && echo "❌ Failed" && tail -20 proxy.log && exit 1
             sleep 1
           done
-          
-          # Display health status
-          echo ""
-          echo "📊 Proxy Health Check:"
-          curl -s http://localhost:${{ env.PROXY_PORT }}/health | jq .
-          
-          echo ""
-          echo "📊 Pool Status:"
-          curl -s http://localhost:${{ env.PROXY_PORT }}/pool/status | jq .
-
-
-      - name: 🧪 Test Proxy API Endpoints
+      
+      - name: 🧪 Test Proxy
         run: |
-          echo "🧪 Testing Proxy API Endpoints..."
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🧪 Testing proxy..."
           
-          # Test 1: Health endpoint
-          echo ""
-          echo "Test 1: Health Check"
-          HEALTH=$(curl -s http://localhost:14441/health)
-          echo "$HEALTH" | jq .
-          
-          if echo "$HEALTH" | jq -e '.ok == true' > /dev/null 2>&1; then
-            echo "✅ Health check passed"
+          HEALTH=$(curl -s http://localhost:$PROXY_PORT/health)
+          if echo "$HEALTH" | jq -e '.ok == true' > /dev/null; then
+            echo "✅ Test passed"
           else
-            echo "❌ Health check failed"
+            echo "❌ Test failed"
             exit 1
           fi
-          
-          # Test 2: Tags endpoint (list models)
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "Test 2: List Models (/api/tags)"
-          TAGS=$(curl -s http://localhost:14441/api/tags)
-          echo "$TAGS" | jq '.models | length'
-          echo "$TAGS" | jq -r '.models[].name'
-          
-          MODEL_COUNT=$(echo "$TAGS" | jq '.models | length')
-          if [ "$MODEL_COUNT" -gt 0 ]; then
-            echo "✅ Found $MODEL_COUNT models"
-          else
-            echo "❌ No models found"
-            exit 1
-          fi
-          
-          # Test 3: Generate endpoint (actual API call to Novita)
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "Test 3: Generate API (/api/generate)"
-          echo "Testing with model: llama3.3:70b-instruct-q4_K_M"
-          echo "Prompt: hello"
-          echo ""
-          
-          GENERATE=$(curl -s -w "\n%{http_code}" http://localhost:14441/api/generate \
-            -H 'Content-Type: application/json' \
-            -d '{"model":"llama3.3:70b-instruct-q4_K_M","prompt":"hello","stream":false}')
-          
-          HTTP_CODE=$(echo "$GENERATE" | tail -1)
-          BODY=$(echo "$GENERATE" | head -n -1)
-          
-          echo "HTTP Status: $HTTP_CODE"
-          echo ""
-          echo "Response:"
-          echo "$BODY" | jq .
-          
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo ""
-            echo "✅ Generate API test PASSED"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            
-            # Check for errors in response
-            if echo "$BODY" | jq -e '.error' > /dev/null 2>&1; then
-              echo ""
-              echo "⚠️ WARNING: Response contains error field!"
-              echo "$BODY" | jq -r '.error'
-              
-              # Check if it's 401 authentication error
-              if echo "$BODY" | jq -r '.detail' | grep -q "401\|FAILED_TO_AUTH\|authenticate"; then
-                echo ""
-                echo "❌ CRITICAL: API Key Authentication Failed!"
-                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                echo "Issue: Novita API is rejecting the API keys"
-                echo ""
-                echo "Troubleshooting:"
-                echo "1. Check if API keys are still valid at https://novita.ai/dashboard"
-                echo "2. Verify keys in GitHub Secrets (NOVITA_API_KEYS)"
-                echo "3. Ensure keys format: key1,key2,key3 (no spaces)"
-                echo ""
-                echo "Current pool status:"
-                curl -s http://localhost:14441/pool/status | jq .
-                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                exit 1
-              fi
-            else
-              echo "✅ No errors in response"
-              
-              # Display generated text
-              RESPONSE_TEXT=$(echo "$BODY" | jq -r '.response // empty')
-              if [ -n "$RESPONSE_TEXT" ]; then
-                echo ""
-                echo "Generated text preview:"
-                echo "\"$RESPONSE_TEXT\"" | head -c 200
-                echo "..."
-              fi
-            fi
-          else
-            echo ""
-            echo "❌ Generate API test FAILED (HTTP $HTTP_CODE)"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            exit 1
-          fi
-          
-          # Test 4: Pool status check
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "Test 4: Pool Status"
-          POOL=$(curl -s http://localhost:14441/pool/status)
-          echo "$POOL" | jq .
-          
-          # Check for failed keys
-          FAILED_KEYS=$(echo "$POOL" | jq '[.keys[] | select(.last_err_at != null)] | length')
-          TOTAL_KEYS=$(echo "$POOL" | jq '.keys | length')
-          
-          echo ""
-          echo "Pool Summary:"
-          echo "  Total Keys: $TOTAL_KEYS"
-          echo "  Failed Keys: $FAILED_KEYS"
-          
-          if [ "$FAILED_KEYS" -gt 0 ]; then
-            echo ""
-            echo "⚠️ WARNING: Some keys have errors!"
-            echo "$POOL" | jq -r '.keys[] | select(.last_err_at != null) | "Key #\(.id): \(.last_err_code) - \(.last_err_msg)"'
-          fi
-          
-          # If all keys failed, exit
-          if [ "$FAILED_KEYS" -eq "$TOTAL_KEYS" ]; then
-            echo ""
-            echo "❌ CRITICAL: ALL API keys have failed!"
-            echo "Cannot proceed with deployment."
-            exit 1
-          fi
-          
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "✅ All proxy API tests completed successfully"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-
-          
+      
       # ============================================
-      # 🐳 DOCKER SETUP
+      # 🐳 DOCKER DEPLOYMENT
       # ============================================
       
-      - name: 🐳 Setup Docker Environment
+      - name: 🐳 Setup Docker
         run: |
-          echo "🐳 Setting up Docker environment..."
-          
-          # Create network
-          docker network create dria-nodes 2>/dev/null || echo "Network already exists"
-          
-          # Pull image in advance (parallel download)
-          echo "📥 Pre-pulling Docker image..."
+          echo "🐳 Setting up Docker..."
+          docker network create dria-nodes 2>/dev/null || true
           docker pull firstbatch/dkn-compute-node:latest
-          
-          echo "✅ Docker environment ready"
+          echo "✅ Ready"
       
-      - name: 🚀 Deploy DKN Containers
+      - name: 🚀 Deploy Containers
         id: deploy
         run: |
-          echo "🚀 Deploying DKN compute containers..."
+          echo "🚀 Deploying containers..."
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
-          WALLET_FILE="wallets.json"
-          WALLET_COUNT=$(jq '. | length' $WALLET_FILE)
-          TOTAL_CONTAINERS=$(( $WALLET_COUNT * $CONTAINERS_PER_WALLET ))
+          ACTUAL_COUNT=$(jq '. | length' wallets.json)
+          TOTAL=$(( $ACTUAL_COUNT * $CONTAINERS_PER_WALLET ))
           
-          echo "Configuration:"
-          echo "  Wallets: $WALLET_COUNT"
-          echo "  Containers per wallet: $CONTAINERS_PER_WALLET"
-          echo "  Total containers: $TOTAL_CONTAINERS"
-          echo "  Batch size: $BATCH_SIZE"
-          echo "  Pause between batches: $PAUSE_SECONDS seconds"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
+          echo "Deploying $TOTAL containers..."
           
-          # DKN Models from secrets or default
           DKN_MODELS="${{ secrets.DKN_MODELS }}"
-          if [ -z "$DKN_MODELS" ]; then
-            DKN_MODELS="llama3.2:1b-instruct-q4_K_M,llama3.1:8b-instruct-q4_K_M,qwen3:8b,gemma3:12b,gemma3:27b,qwen3:32b,llama3.3:70b-instruct-q4_K_M"
-          fi
+          [ -z "$DKN_MODELS" ] && DKN_MODELS="llama3.2:1b-instruct-q4_K_M,llama3.1:8b-instruct-q4_K_M,qwen3:8b"
           
           STARTED=0
-          FAILED=0
           
-          # Loop through wallets
-          for (( w=0; w<$WALLET_COUNT; w++ )); do
-            WALLET_INDEX=$((w + 1))
+          for (( w=0; w<$ACTUAL_COUNT; w++ )); do
+            ADDRESS=$(jq -r ".[$w].address" wallets.json)
+            PRIVKEY=$(jq -r ".[$w].private_key" wallets.json)
+            PRIVKEY="${PRIVKEY#0x}"
+            ADDR_SHORT="${ADDRESS:2:6}"
             
-            # Extract wallet data
-            ADDRESS=$(jq -r ".[$w].address" $WALLET_FILE)
-            PRIVKEY_RAW=$(jq -r ".[$w].private_key" $WALLET_FILE)
-            
-            # Remove 0x prefix
-            DKN_WALLET_SECRET_KEY="${PRIVKEY_RAW#0x}"
-            
-            # Short address for naming
-            ADDRESS_NO0X="${ADDRESS#0x}"
-            ADDR_SHORT="${ADDRESS_NO0X:0:6}"
-            
-            echo "📦 Wallet #$WALLET_INDEX ($ADDRESS)"
-            
-            # Deploy containers for this wallet
             for (( i=1; i<=$CONTAINERS_PER_WALLET; i++ )); do
-              CONTAINER_NAME="compute_node_w${WALLET_INDEX}_${ADDR_SHORT}_$(printf '%02d' "$i")"
+              NAME="compute_node_w$((w+1))_${ADDR_SHORT}_$(printf '%02d' $i)"
               
-              # Check if already exists
-              if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-                echo "  ⚠️  Container $CONTAINER_NAME already exists, removing..."
-                docker rm -f $CONTAINER_NAME > /dev/null 2>&1
-              fi
+              docker ps -aq -f name="^${NAME}$" | xargs -r docker rm -f > /dev/null 2>&1
               
-              # Run container
               if docker run -d \
-                --name "$CONTAINER_NAME" \
+                --name "$NAME" \
                 --network dria-nodes \
                 --restart on-failure:3 \
-                -e RUST_LOG="none,dkn_compute=info" \
-                -e DKN_WALLET_SECRET_KEY="$DKN_WALLET_SECRET_KEY" \
+                -e DKN_WALLET_SECRET_KEY="$PRIVKEY" \
                 -e DKN_MODELS="$DKN_MODELS" \
                 -e OLLAMA_HOST="http://host.docker.internal" \
-                -e OLLAMA_PORT="${{ env.PROXY_PORT }}" \
+                -e OLLAMA_PORT="$PROXY_PORT" \
                 -e OLLAMA_AUTO_PULL="false" \
-                --label "wallet_index=$WALLET_INDEX" \
-                --label "wallet_address=$ADDRESS" \
-                --label "github_run=${{ github.run_id }}" \
                 --add-host host.docker.internal:host-gateway \
                 firstbatch/dkn-compute-node:latest > /dev/null 2>&1; then
-                
-                echo "  ✅ Started: $CONTAINER_NAME"
                 STARTED=$((STARTED + 1))
-              else
-                echo "  ❌ Failed: $CONTAINER_NAME"
-                FAILED=$((FAILED + 1))
               fi
               
-              # Rate limiting: pause every BATCH_SIZE containers
               if (( STARTED % $BATCH_SIZE == 0 )); then
-                RUNNING=$(docker ps --filter "name=compute_node" --format "{{.Names}}" | wc -l)
-                echo ""
-                echo "  ⏸️  Progress: $STARTED/$TOTAL_CONTAINERS started, $RUNNING running"
-                echo "  ⏳ Pausing for $PAUSE_SECONDS seconds..."
+                echo "Progress: $STARTED/$TOTAL"
                 sleep $PAUSE_SECONDS
-                echo ""
               fi
             done
           done
           
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "✅ Deployment Complete!"
-          echo "  Started: $STARTED"
-          echo "  Failed: $FAILED"
-          echo "  Total: $TOTAL_CONTAINERS"
+          echo "✅ Deployed $STARTED containers"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
-          # Output for next steps
           echo "started=$STARTED" >> $GITHUB_OUTPUT
-          echo "failed=$FAILED" >> $GITHUB_OUTPUT
-      
-      - name: ✅ Verify Deployment
-        run: |
-          echo "🔍 Verifying deployment..."
-          echo ""
-          
-          # Count running containers
-          RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
-          RUNNING=$((RUNNING - 1))  # Exclude header
-          
-          # Count all containers (including stopped)
-          TOTAL=$(docker ps -a --filter "name=compute_node" | wc -l)
-          TOTAL=$((TOTAL - 1))
-          
-          echo "📊 Container Status:"
-          echo "  Running: $RUNNING"
-          echo "  Total: $TOTAL"
-          echo ""
-          
-          # Show resource usage
-          echo "💻 Resource Usage:"
-          free -h
-          echo ""
-          df -h /
-          echo ""
-          
-          # Sample container logs
-          echo "📋 Sample Container Logs (first container):"
-          FIRST_CONTAINER=$(docker ps --filter "name=compute_node" --format "{{.Names}}" | head -1)
-          if [ -n "$FIRST_CONTAINER" ]; then
-            echo "Container: $FIRST_CONTAINER"
-            docker logs --tail 10 $FIRST_CONTAINER 2>&1 || echo "No logs yet"
-          fi
-          
-          # Test proxy connectivity from container
-          echo ""
-          echo "🔗 Testing Proxy Connectivity from Container:"
-          if [ -n "$FIRST_CONTAINER" ]; then
-            docker exec $FIRST_CONTAINER sh -c "curl -sf http://host.docker.internal:${{ env.PROXY_PORT }}/health" | jq . || echo "❌ Proxy not reachable from container"
-          fi
       
       # ============================================
-      # 💾 COMMIT WALLETS FIRST (PRIORITY!)
+      # 📱 TELEGRAM NOTIFICATION #1: DEPLOYMENT
       # ============================================
       
-      - name: 💾 Save Wallets Immediately
-        run: |
-          echo "💾 Committing wallets.json to repository (PRIORITY)..."
-          
-          # Configure git
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          
-          # Add wallets
-          git add wallets.json
-          
-          # Commit if changed
-          if git diff --staged --quiet; then
-            echo "ℹ️  No changes to wallets.json"
-          else
-            git commit -m "🔄 Auto-update wallets.json [run ${{ github.run_id }}]"
-            git push
-            echo "✅ Wallets committed and pushed"
-          fi
-      
-      # ============================================
-      # 🔍 CONTAINER DIAGNOSTICS
-      # ============================================
-      
-      - name: 🔍 Show Container Logs (Diagnostic)
-        run: |
-          echo "🔍 Container Diagnostics"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
-          
-          # Wait a bit for containers to settle
-          sleep 10
-          
-          # Count containers
-          RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
-          RUNNING=$((RUNNING - 1))
-          
-          TOTAL=$(docker ps -a --filter "name=compute_node" | wc -l)
-          TOTAL=$((TOTAL - 1))
-          
-          echo "📊 Container Status:"
-          echo "  Running: $RUNNING / $TOTAL"
-          echo ""
-          
-          # Get first container
-          FIRST_CONTAINER=$(docker ps -a --filter "name=compute_node" --format "{{.Names}}" | head -1)
-          
-          if [ -n "$FIRST_CONTAINER" ]; then
-            echo "📋 Sample Container: $FIRST_CONTAINER"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            
-            # Container state
-            echo "🔍 Container State:"
-            docker inspect $FIRST_CONTAINER | jq '.[0].State' 2>/dev/null || echo "N/A"
-            
-            echo ""
-            echo "📋 Container Logs (First 200 lines):"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            docker logs --tail 200 $FIRST_CONTAINER 2>&1 || echo "No logs available"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          else
-            echo "⚠️  No containers found"
-          fi
-          
-          echo ""
-          echo "🔗 Proxy Health Check:"
-          curl -s http://localhost:${{ env.PROXY_PORT }}/health | jq . 2>/dev/null || echo "⚠️ Proxy not responding"
-          
-          echo ""
-          echo "🔗 Testing Proxy from Container Network:"
-          docker run --rm \
-            --network dria-nodes \
-            --add-host host.docker.internal:host-gateway \
-            curlimages/curl:latest \
-            curl -s -m 5 http://host.docker.internal:${{ env.PROXY_PORT }}/health 2>&1 || echo "❌ Cannot reach proxy from container network"
-      
-      # ============================================
-      # ⏰ RUNTIME (Simple Sleep, No Auto-Restart)
-      # ============================================
-      
-      - name: ⏰ Runtime Period
-        timeout-minutes: 350
-        run: |
-          echo "⏰ Starting runtime period..."
-          echo "Duration: ${{ env.RUNTIME_HOURS }} hours"
-          echo ""
-          
-          RUNTIME_SECONDS=$(echo "${{ env.RUNTIME_HOURS }} * 3600" | bc | cut -d. -f1)
-          START_TIME=$(date +%s)
-          END_TIME=$((START_TIME + RUNTIME_SECONDS))
-          
-          REPORT_INTERVAL=300  # Report every 5 minutes
-          NEXT_REPORT=$((START_TIME + REPORT_INTERVAL))
-          
-          echo "🕐 Start time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          echo "🕐 End time: $(date -u -d "@$END_TIME" '+%Y-%m-%d %H:%M:%S UTC')"
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          
-          while true; do
-            CURRENT_TIME=$(date +%s)
-            
-            # Check if time's up
-            if [ $CURRENT_TIME -ge $END_TIME ]; then
-              echo ""
-              echo "⏰ Runtime period completed"
-              break
-            fi
-            
-            # Periodic report (every 5 minutes)
-            if [ $CURRENT_TIME -ge $NEXT_REPORT ]; then
-              ELAPSED=$((CURRENT_TIME - START_TIME))
-              REMAINING=$((END_TIME - CURRENT_TIME))
-              
-              ELAPSED_MIN=$((ELAPSED / 60))
-              REMAINING_MIN=$((REMAINING / 60))
-              
-              RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
-              RUNNING=$((RUNNING - 1))
-              
-              echo ""
-              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-              echo "📊 Runtime Report ($(date -u '+%Y-%m-%d %H:%M:%S UTC'))"
-              echo "  Elapsed: ${ELAPSED_MIN} minutes"
-              echo "  Remaining: ${REMAINING_MIN} minutes"
-              echo "  Containers Running: $RUNNING"
-              echo ""
-              echo "💻 Resources:"
-              free -h | awk '/^Mem:/ {print "  RAM Used: "$3" / "$2" ("int($3/$2*100)"%)"}'
-              echo "  CPU: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}')% user"
-              echo ""
-              echo "🌐 Proxy Status:"
-              curl -s http://localhost:${{ env.PROXY_PORT }}/health | jq -r '"  OK: " + (.ok | tostring) + " | Keys: " + (.pool.keys | tostring)' 2>/dev/null || echo "  ⚠️ Not responding"
-              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-              
-              NEXT_REPORT=$((CURRENT_TIME + REPORT_INTERVAL))
-            fi
-            
-            # Sleep for 1 minute
-            sleep 60
-          done
-          
-          echo ""
-          echo "✅ Runtime period finished"
-      
-      # ============================================
-      # 📊 FINAL STATISTICS
-      # ============================================
-      
-      - name: 📊 Final Statistics
-        if: always()
-        run: |
-          echo "📊 Final Statistics"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          
-          RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
-          RUNNING=$((RUNNING - 1))
-          
-          TOTAL=$(docker ps -a --filter "name=compute_node" | wc -l)
-          TOTAL=$((TOTAL - 1))
-          
-          echo "  Total Containers: $TOTAL"
-          echo "  Still Running: $RUNNING"
-          echo "  Stopped/Failed: $((TOTAL - RUNNING))"
-          echo ""
-          
-          # Show container status breakdown
-          echo "📋 Container Status Breakdown:"
-          docker ps -a --filter "name=compute_node" --format "table {{.Names}}\t{{.Status}}\t{{.State}}" | head -20
-          
-          echo ""
-          echo "💻 Final Resource Usage:"
-          free -h
-          
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      
-      # ============================================
-      # 🛑 GRACEFUL SHUTDOWN
-      # ============================================
-      
-      - name: 🛑 Graceful Shutdown
-        if: always()
-        run: |
-          echo "🛑 Initiating graceful shutdown..."
-          echo ""
-          
-          # Final stats
-          echo "📊 Final Statistics:"
-          RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
-          RUNNING=$((RUNNING - 1))
-          
-          TOTAL=$(docker ps -a --filter "name=compute_node" | wc -l)
-          TOTAL=$((TOTAL - 1))
-          
-          echo "  Total containers deployed: $TOTAL"
-          echo "  Still running: $RUNNING"
-          echo ""
-          
-          # Export final logs from proxy
-          if [ -f proxy/proxy.log ]; then
-            echo "📋 Proxy Final Logs (last 50 lines):"
-            tail -50 proxy/proxy.log
-          fi
-          
-          # Stop containers gracefully
-          echo ""
-          echo "🛑 Stopping containers..."
-          docker ps --filter "name=compute_node" -q | xargs -r docker stop -t 10
-          
-          # Stop proxy
-          if [ -f proxy/proxy.pid ]; then
-            echo "🛑 Stopping proxy..."
-            kill $(cat proxy/proxy.pid) 2>/dev/null || true
-          fi
-          
-          # Cleanup
-          echo "🧹 Cleaning up..."
-          docker ps -a --filter "name=compute_node" -q | xargs -r docker rm -f
-          docker network rm dria-nodes 2>/dev/null || true
-          
-          echo "✅ Shutdown complete"
-      
-      # ============================================
-      # 💾 SAVE STATE
-      # ============================================
-      
-      - name: 💾 Commit Updated Wallets
-        if: always()
-        run: |
-          echo "💾 Saving wallets.json to repository..."
-          
-          # Configure git
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          
-          # Add wallets
-          git add wallets.json
-          
-          # Commit if changed
-          if git diff --staged --quiet; then
-            echo "ℹ️  No changes to wallets.json"
-          else
-            git commit -m "🔄 Auto-update wallets.json [run ${{ github.run_id }}]"
-            git push
-            echo "✅ Wallets committed and pushed"
-          fi
-      
-      - name: 📦 Save Logs as Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            proxy/proxy.log
-            proxy/.env
-          retention-days: 7
-          if-no-files-found: warn
-
-      # ============================================
-      # 📱 TELEGRAM NOTIFICATIONS
-      # ============================================
-      
-      - name: 📱 Send Success Notification
-        if: ${{ success() }}
+      - name: 📱 Send Deployment Success Notification
+        if: success()
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          if [ -z "$BOT_TOKEN" ]; then
-            echo "ℹ️ Telegram not configured, skipping"
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "⚠️  Telegram not configured, skipping"
             exit 0
           fi
           
-          echo "📱 Sending Telegram notification..."
+          echo "📱 Sending deployment notification..."
           
+          # Get wallet info
+          WALLET_COUNT=$(jq '. | length' wallets.json)
+          FIRST_WALLET=$(jq -r '.[0].address' wallets.json)
+          
+          # Get container stats
+          RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
+          RUNNING=$((RUNNING - 1))
+          
+          TOTAL=$(docker ps -a --filter "name=compute_node" | wc -l)
+          TOTAL=$((TOTAL - 1))
+          
+          # Calculate success rate
+          if [ "$TOTAL" -gt 0 ]; then
+            SUCCESS_RATE=$(( RUNNING * 100 / TOTAL ))
+          else
+            SUCCESS_RATE=0
+          fi
+          
+          # Detect trigger type
+          TRIGGER="${{ github.event_name }}"
+          if [ "$TRIGGER" = "schedule" ]; then
+            TRIGGER_TEXT="Auto-Schedule"
+          else
+            TRIGGER_TEXT="Manual"
+          fi
+          
+          # Get repo name (short)
+          REPO_SHORT=$(echo "${{ github.repository }}" | cut -d'/' -f2)
+          
+          # Construct message
+          MESSAGE="🚀 *Deployment Complete!*
+
+          🐳 Containers: \`$RUNNING/$TOTAL\` ($SUCCESS_RATE%)
+          💰 Wallets: \`$WALLET_COUNT\`
+          📍 First: \`${FIRST_WALLET:0:10}...${FIRST_WALLET: -8}\`
+          🔄 Trigger: $TRIGGER_TEXT
+          📦 Repo: \`$REPO_SHORT\`
+          #️⃣ Run: \`#${{ github.run_number }}\`
+
+          ⏱️ Runtime: $RUNTIME_HOURS hours
+          🔗 [View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          
+          # Send text message
+          echo "📤 Sending message..."
+          SEND_MSG=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d parse_mode="Markdown" \
+            -d disable_web_page_preview=true \
+            -d text="$MESSAGE")
+          
+          MSG_OK=$(echo "$SEND_MSG" | jq -r '.ok')
+          if [ "$MSG_OK" = "true" ]; then
+            echo "✅ Message sent"
+          else
+            echo "❌ Failed to send message"
+            echo "Response: $SEND_MSG"
+          fi
+          
+          # Send wallets.json file
+          if [ -f "wallets.json" ]; then
+            echo "📤 Sending wallets.json file..."
+            
+            CAPTION="💰 $WALLET_COUNT wallets | Run #${{ github.run_number }}"
+            
+            SEND_DOC=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+              -F chat_id="${CHAT_ID}" \
+              -F document=@wallets.json \
+              -F caption="$CAPTION")
+            
+            DOC_OK=$(echo "$SEND_DOC" | jq -r '.ok')
+            if [ "$DOC_OK" = "true" ]; then
+              echo "✅ File sent"
+            else
+              echo "❌ Failed to send file"
+              echo "Response: $SEND_DOC"
+            fi
+          else
+            echo "⚠️  wallets.json not found"
+          fi
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Deployment notification completed"
+      
+      # ============================================
+      # ⏰ RUNTIME
+      # ============================================
+      
+      - name: ⏰ Runtime Period
+        run: |
+          echo "⏰ Starting runtime period..."
+          
+          RUNTIME_SEC=$(echo "$RUNTIME_HOURS * 3600" | bc | cut -d. -f1)
+          START=$(date +%s)
+          END=$((START + RUNTIME_SEC))
+          
+          echo "Runtime: $RUNTIME_HOURS hours"
+          echo "Start: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "End: $(date -u -d "@$END" '+%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          
+          while [ $(date +%s) -lt $END ]; do
+            sleep 60
+          done
+          
+          echo "✅ Runtime completed"
+      
+      # ============================================
+      # 🛑 SHUTDOWN
+      # ============================================
+      
+      - name: 🛑 Shutdown
+        if: always()
+        run: |
+          echo "🛑 Shutting down..."
+          
+          docker ps -q -f name=compute_node | xargs -r docker stop -t 10
+          docker ps -aq -f name=compute_node | xargs -r docker rm -f
+          docker network rm dria-nodes 2>/dev/null || true
+          [ -f proxy/proxy.pid ] && kill $(cat proxy/proxy.pid) 2>/dev/null || true
+          
+          echo "✅ Cleaned up"
+      
+      # ============================================
+      # 📦 ARTIFACTS (LOGS ONLY)
+      # ============================================
+      
+      - name: 📦 Save Logs to Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ github.run_id }}
+          path: proxy/proxy.log
+          retention-days: 7
+          if-no-files-found: warn
+      
+      # ============================================
+      # 📱 TELEGRAM NOTIFICATION #2: COMPLETE
+      # ============================================
+      
+      - name: 📱 Send Final Success Notification
+        if: success()
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "ℹ️  Telegram not configured, skipping"
+            exit 0
+          fi
+          
+          echo "📱 Sending completion notification..."
+          
+          # Get wallet info
           WALLET_COUNT=$(jq '. | length' wallets.json 2>/dev/null || echo "0")
-          FIRST_WALLET=$(jq -r '.[0].address' wallets.json 2>/dev/null || echo "N/A")
-          TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
           
+          # Get repo name
+          REPO_SHORT=$(echo "${{ github.repository }}" | cut -d'/' -f2)
+          
+          # Duration
+          DURATION="$RUNTIME_HOURS hours"
+          
+          # Construct message
+          MESSAGE="🎉 *Runtime Complete!*
+
+          📦 Repo: \`$REPO_SHORT\`
+          #️⃣ Run: \`#${{ github.run_number }}\`
+          ⏱️ Duration: \`$DURATION\`
+          💰 Wallets: \`$WALLET_COUNT\`
+          🐳 Containers: \`$(( $WALLET_COUNT * $CONTAINERS_PER_WALLET ))\`
+
+          ✅ All tasks completed successfully
+
+          🔗 [View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          
+          # Send text message
+          echo "📤 Sending message..."
+          SEND_MSG=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d parse_mode="Markdown" \
+            -d disable_web_page_preview=true \
+            -d text="$MESSAGE")
+          
+          MSG_OK=$(echo "$SEND_MSG" | jq -r '.ok')
+          if [ "$MSG_OK" = "true" ]; then
+            echo "✅ Message sent"
+          else
+            echo "❌ Failed to send message"
+          fi
+          
+          # Send wallets.json file with repo name
+          if [ -f "wallets.json" ]; then
+            echo "📤 Sending wallets file..."
+            
+            # Rename file temporarily with repo name
+            REPO_FILE="${REPO_SHORT}-wallets.json"
+            cp wallets.json "$REPO_FILE"
+            
+            CAPTION="💰 $WALLET_COUNT wallets | Run #${{ github.run_number }}"
+            
+            SEND_DOC=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+              -F chat_id="${CHAT_ID}" \
+              -F document=@"$REPO_FILE" \
+              -F caption="$CAPTION")
+            
+            DOC_OK=$(echo "$SEND_DOC" | jq -r '.ok')
+            if [ "$DOC_OK" = "true" ]; then
+              echo "✅ File sent as: $REPO_FILE"
+            else
+              echo "❌ Failed to send file"
+            fi
+            
+            # Cleanup temp file
+            rm -f "$REPO_FILE"
+          else
+            echo "⚠️  wallets.json not found"
+          fi
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Completion notification sent"
+      
+      # ============================================
+      # 📱 TELEGRAM NOTIFICATION #3: FAILURE
+      # ============================================
+      
+      - name: 📱 Send Failure Notification
+        if: failure()
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            exit 0
+          fi
+          
+          echo "📱 Sending failure notification..."
+          
+          # Get repo name
+          REPO_SHORT=$(echo "${{ github.repository }}" | cut -d'/' -f2)
+          
+          # Get current timestamp
+          CURRENT_TIME=$(date -u '+%Y-%m-%d %H:%M UTC')
+          
+          # Detect trigger
+          TRIGGER="${{ github.event_name }}"
+          if [ "$TRIGGER" = "schedule" ]; then
+            TRIGGER_TEXT="Auto"
+          else
+            TRIGGER_TEXT="Manual"
+          fi
+          
+          # Construct message
+          MESSAGE="🚨 *ERROR ALERT*
+
+          *STATUS*
+          ├─ State: Failed
+          ├─ Exit Code: 1
+          └─ Duration: Check logs
+
+          *CONTEXT*
+          ├─ Repo: \`$REPO_SHORT\`
+          ├─ Run: \`#${{ github.run_number }}\`
+          ├─ Trigger: $TRIGGER_TEXT
+          └─ Time: $CURRENT_TIME
+
+          *ACTION REQUIRED*
+          └─ Check logs for details
+
+          🔍 [View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          
+          # Send message
           curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             -d chat_id="${CHAT_ID}" \
             -d parse_mode="Markdown" \
             -d disable_web_page_preview=true \
-            -d text="✅ *DKN Runtime Completed!*
-
-              *📊 Summary:*
-              • Run: #${{ github.run_number }}
-              • Duration: ${{ env.RUNTIME_HOURS }} hours
-              • Containers: ${{ steps.deploy.outputs.started }}
-
-              *💰 Wallets:*
-              • Total: ${WALLET_COUNT} wallets
-              • First: \`${FIRST_WALLET:0:10}...${FIRST_WALLET: -8}\`
-
-              *🕐 Finished:*
-              ${TIMESTAMP}
-
-              *🔗 Links:*
-              [View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-              [wallets.json](${{ github.server_url }}/${{ github.repository }}/blob/main/wallets.json)"
-          
-          if [ -f wallets.json ]; then
-            curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
-              -F chat_id="${CHAT_ID}" \
-              -F document=@wallets.json \
-              -F caption="💰 Wallets from run #${{ github.run_number }} | Total: ${WALLET_COUNT}"
-            echo "✅ Sent with wallets.json"
-          fi
-      
-      - name: 📱 Send Failure Notification
-        if: ${{ failure() }}
-        env:
-          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          if [ -z "$BOT_TOKEN" ]; then
-            exit 0
-          fi
-          
-          TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-          
-          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-            -d chat_id="${CHAT_ID}" \
-            -d parse_mode="Markdown" \
-            -d text="❌ *DKN Runtime Failed!*
-
-              *📊 Details:*
-              • Run: #${{ github.run_number }}
-              • Repository: \`${{ github.repository }}\`
-              • Branch: \`${{ github.ref_name }}\`
-
-              *🕐 Failed at:*
-              ${TIMESTAMP}
-
-              *⚠️ Action Required:*
-              Check logs for error details
-
-              *🔗 Link:*
-              [View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            -d text="$MESSAGE" > /dev/null
           
           echo "✅ Failure notification sent"
