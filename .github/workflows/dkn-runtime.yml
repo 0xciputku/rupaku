@@ -806,21 +806,21 @@ jobs:
             -d disable_web_page_preview=true \
             -d text="✅ *DKN Runtime Completed!*
 
-*📊 Summary:*
-• Run: #${{ github.run_number }}
-• Duration: ${{ env.RUNTIME_HOURS }} hours
-• Containers: ${{ steps.deploy.outputs.started }}
+              *📊 Summary:*
+              • Run: #${{ github.run_number }}
+              • Duration: ${{ env.RUNTIME_HOURS }} hours
+              • Containers: ${{ steps.deploy.outputs.started }}
 
-*💰 Wallets:*
-• Total: ${WALLET_COUNT} wallets
-• First: \`${FIRST_WALLET:0:10}...${FIRST_WALLET: -8}\`
+              *💰 Wallets:*
+              • Total: ${WALLET_COUNT} wallets
+              • First: \`${FIRST_WALLET:0:10}...${FIRST_WALLET: -8}\`
 
-*🕐 Finished:*
-${TIMESTAMP}
+              *🕐 Finished:*
+              ${TIMESTAMP}
 
-*🔗 Links:*
-[View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-[wallets.json](${{ github.server_url }}/${{ github.repository }}/blob/main/wallets.json)"
+              *🔗 Links:*
+              [View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+              [wallets.json](${{ github.server_url }}/${{ github.repository }}/blob/main/wallets.json)"
           
           if [ -f wallets.json ]; then
             curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
@@ -847,18 +847,18 @@ ${TIMESTAMP}
             -d parse_mode="Markdown" \
             -d text="❌ *DKN Runtime Failed!*
 
-*📊 Details:*
-• Run: #${{ github.run_number }}
-• Repository: \`${{ github.repository }}\`
-• Branch: \`${{ github.ref_name }}\`
+              *📊 Details:*
+              • Run: #${{ github.run_number }}
+              • Repository: \`${{ github.repository }}\`
+              • Branch: \`${{ github.ref_name }}\`
 
-*🕐 Failed at:*
-${TIMESTAMP}
+              *🕐 Failed at:*
+              ${TIMESTAMP}
 
-*⚠️ Action Required:*
-Check logs for error details
+              *⚠️ Action Required:*
+              Check logs for error details
 
-*🔗 Link:*
-[View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+              *🔗 Link:*
+              [View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           
           echo "✅ Failure notification sent"
