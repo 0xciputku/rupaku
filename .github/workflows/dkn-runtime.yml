@@ -218,7 +218,7 @@ jobs:
           curl -s http://localhost:${{ env.PROXY_PORT }}/pool/status | jq .
 
 
-            - name: 🧪 Test Proxy API Endpoints
+      - name: 🧪 Test Proxy API Endpoints
         run: |
           echo "🧪 Testing Proxy API Endpoints..."
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
