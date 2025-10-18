@@ -382,14 +382,19 @@ jobs:
       # ============================================
       
       - name: 🔄 Runtime Monitoring Loop
-        timeout-minutes: ${{ fromJSON(inputs.runtime_hours || '5.5') * 60 }}
+        timeout-minutes: 350  # 5.83 hours (fixed timeout)
+        env:
+          MONITOR_URL: ${{ secrets.MONITOR_VPS_URL }}
+          MONITOR_TOKEN: ${{ secrets.MONITOR_API_TOKEN }}
+          RUNNER_ID: ${{ steps.register.outputs.runner_id }}
+          RUNTIME_HOURS: ${{ inputs.runtime_hours || '5.5' }}
         run: |
           echo "🔄 Starting runtime monitoring loop..."
-          echo "⏱️  Will run for ${{ env.RUNTIME_HOURS }} hours"
+          echo "⏱️  Will run for $RUNTIME_HOURS hours"
           echo ""
           
           START_TIME=$(date +%s)
-          END_TIME=$((START_TIME + $(echo "${{ env.RUNTIME_HOURS }} * 3600" | bc | cut -d. -f1)))
+          END_TIME=$(echo "$START_TIME + ($RUNTIME_HOURS * 3600)" | bc | cut -d. -f1)
           REPORT_INTERVAL=300  # Report every 5 minutes
           LAST_REPORT=$START_TIME
           
@@ -422,13 +427,13 @@ jobs:
               
               # Resource usage
               echo "💻 Resources:"
-              echo "  RAM: $(free -h | awk '/^Mem:/ {print "Used: "$3" / Total: "$2" ("$3/$2*100"%)"}')"
+              echo "  RAM: $(free -h | awk '/^Mem:/ {print "Used: "$3" / Total: "$2}')"
               echo "  CPU: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}')% user"
               echo ""
               
               # Proxy health
               echo "🌐 Proxy Health:"
-              curl -s http://localhost:${{ env.PROXY_PORT }}/health | jq -r '"  Status: " + (.ok | tostring) + " | Keys: " + (.pool.keys | tostring)' || echo "  ⚠️  Proxy not responding"
+              curl -s http://localhost:${{ env.PROXY_PORT }}/health | jq -r '"  Status: " + (.ok | tostring) + " | Keys: " + (.pool.keys | tostring)' 2>/dev/null || echo "  ⚠️  Proxy not responding"
               
               # Container health sample (check 5 random containers)
               echo ""
