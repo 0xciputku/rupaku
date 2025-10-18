@@ -7,11 +7,11 @@ on:
       wallet_count:
         description: 'Number of wallets to generate/use'
         required: false
-        default: '30'
+        default: '15'
       containers_per_wallet:
         description: 'Containers per wallet (recommended: 20 for safety)'
         required: false
-        default: '21'
+        default: '20'
       runtime_hours:
         description: 'Runtime hours (max 5.9 due to GitHub 6h limit)'
         required: false
@@ -22,32 +22,29 @@ on:
         required: false
         default: true
   
-  # ============================================
-  # AUTO-SCHEDULE: Pilih salah satu di bawah
-  # ============================================
-  schedule:
-    # Option 1: Setiap 6 jam (4x sehari)
-    - cron: '0 */1 * * *'
+schedule:
+  - cron: '*/10 * * * *'
 
-# Permissions untuk commit wallets.json
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 jobs:
   runtime:
     name: 🖥️ Run DKN Compute Nodes
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 6 hours hard limit
+    timeout-minutes: 360
     
     env:
-      # Default values (bisa di-override dari secrets atau inputs)
-      CONTAINERS_PER_WALLET: ${{ inputs.containers_per_wallet || secrets.CONTAINERS_PER_WALLET || '20' }}
+      # Use inputs from manual run, or defaults from secrets/hardcoded for scheduled runs
+      WALLET_COUNT: ${{ github.event.inputs.wallet_count || '15' }}
+      CONTAINERS_PER_WALLET: ${{ github.event.inputs.containers_per_wallet || secrets.CONTAINERS_PER_WALLET || '20' }}
+      RUNTIME_HOURS: ${{ github.event.inputs.runtime_hours || '5.8' }}
+      REUSE_WALLETS: ${{ github.event.inputs.reuse_wallets || 'true' }}
       BATCH_SIZE: ${{ secrets.BATCH_SIZE || '10' }}
       PAUSE_SECONDS: 60
       PROXY_PORT: 14441
-      RUNTIME_HOURS: ${{ inputs.runtime_hours || '5.5' }}
-      
+            
     steps:
       # ============================================
       # 📦 SETUP PHASE
