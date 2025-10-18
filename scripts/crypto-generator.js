@@ -1,8 +1,9 @@
-const fs = require('fs');
-const { Wallet } = require('ethers');
+import fs from 'fs';
+import { Wallet } from 'ethers';
 
 const args = process.argv.slice(2);
 const count = parseInt(args[0] || "1", 10);
+
 if (isNaN(count) || count < 1) {
   console.error("Usage: node crypto-generator.js <count>");
   process.exit(1);
