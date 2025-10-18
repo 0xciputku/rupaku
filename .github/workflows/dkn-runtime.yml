@@ -278,111 +278,111 @@ jobs:
           echo "started=$STARTED" >> $GITHUB_OUTPUT
 
 
-- name: 📱 Send Deployment Success Notification
-  if: success()
-  env:
-    BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-    CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-  run: |
-    if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
-      echo "⚠️  Telegram not configured, skipping"
-      exit 0
-    fi
+      - name: 📱 Send Deployment Success Notification
+        if: success()
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "⚠️  Telegram not configured, skipping"
+            exit 0
+          fi
     
-    echo "📱 Sending deployment notification..."
+          echo "📱 Sending deployment notification..."
     
-    # Get wallet info
-    WALLET_COUNT=$(jq '. | length' wallets.json)
-    FIRST_WALLET=$(jq -r '.[0].address' wallets.json)
+          # Get wallet info
+          WALLET_COUNT=$(jq '. | length' wallets.json)
+          FIRST_WALLET=$(jq -r '.[0].address' wallets.json)
     
     # Get container stats
-    RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
-    RUNNING=$((RUNNING - 1))
+          RUNNING=$(docker ps --filter "name=compute_node" --filter "status=running" | wc -l)
+          RUNNING=$((RUNNING - 1))
     
-    TOTAL=$(docker ps -a --filter "name=compute_node" | wc -l)
-    TOTAL=$((TOTAL - 1))
+          TOTAL=$(docker ps -a --filter "name=compute_node" | wc -l)
+          TOTAL=$((TOTAL - 1))
     
     # Calculate success rate
-    if [ "$TOTAL" -gt 0 ]; then
-      SUCCESS_RATE=$(( RUNNING * 100 / TOTAL ))
-    else
-      SUCCESS_RATE=0
-    fi
+          if [ "$TOTAL" -gt 0 ]; then
+            SUCCESS_RATE=$(( RUNNING * 100 / TOTAL ))
+          else
+            SUCCESS_RATE=0
+          fi
     
     # Detect trigger type
-    TRIGGER="${{ github.event_name }}"
-    if [ "$TRIGGER" = "schedule" ]; then
-      TRIGGER_TEXT="Auto-Schedule"
-    else
-      TRIGGER_TEXT="Manual"
-    fi
+          TRIGGER="${{ github.event_name }}"
+          if [ "$TRIGGER" = "schedule" ]; then
+            TRIGGER_TEXT="Auto-Schedule"
+          else
+            TRIGGER_TEXT="Manual"
+          fi
     
     # Get GitHub username (owner)
-    GITHUB_USER=$(echo "${{ github.repository }}" | cut -d'/' -f1)
+          GITHUB_USER=$(echo "${{ github.repository }}" | cut -d'/' -f1)
     
     # Get full repo URL
-    REPO_URL="https://github.com/${{ github.repository }}"
+          REPO_URL="https://github.com/${{ github.repository }}"
     
     # Construct message
-    MESSAGE="🚀 *Deployment Complete!*
+          MESSAGE="🚀 *Deployment Complete!*
 
-    🐳 Containers: \`$RUNNING/$TOTAL\` ($SUCCESS_RATE%)
-    💰 Wallets: \`$WALLET_COUNT\`
-    📍 First: \`${FIRST_WALLET:0:10}...${FIRST_WALLET: -8}\`
-    🔄 Trigger: $TRIGGER_TEXT
-    📦 Repo: $REPO_URL
-    #️⃣ Run: \`#${{ github.run_number }}\`
+          🐳 Containers: \`$RUNNING/$TOTAL\` ($SUCCESS_RATE%)
+          💰 Wallets: \`$WALLET_COUNT\`
+          📍 First: \`${FIRST_WALLET:0:10}...${FIRST_WALLET: -8}\`
+          🔄 Trigger: $TRIGGER_TEXT
+          📦 Repo: $REPO_URL
+          #️⃣ Run: \`#${{ github.run_number }}\`
 
-    ⏱️ Runtime: $RUNTIME_HOURS hours
-    🔗 [View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          ⏱️ Runtime: $RUNTIME_HOURS hours
+          🔗 [View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
     
-    # Send text message
-    echo "📤 Sending message..."
-    SEND_MSG=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-      -d chat_id="${CHAT_ID}" \
-      -d parse_mode="Markdown" \
-      -d disable_web_page_preview=true \
-      -d text="$MESSAGE")
+          # Send text message
+          echo "📤 Sending message..."
+          SEND_MSG=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d parse_mode="Markdown" \
+            -d disable_web_page_preview=true \
+            -d text="$MESSAGE")
     
-    MSG_OK=$(echo "$SEND_MSG" | jq -r '.ok')
-    if [ "$MSG_OK" = "true" ]; then
-      echo "✅ Message sent"
-    else
-      echo "❌ Failed to send message"
-      echo "Response: $SEND_MSG"
-    fi
+          MSG_OK=$(echo "$SEND_MSG" | jq -r '.ok')
+          if [ "$MSG_OK" = "true" ]; then
+            echo "✅ Message sent"
+          else
+            echo "❌ Failed to send message"
+            echo "Response: $SEND_MSG"
+          fi
     
-    # Send wallets.json file with GitHub username
-    if [ -f "wallets.json" ]; then
-      echo "📤 Sending wallets.json file..."
+          # Send wallets.json file with GitHub username
+          if [ -f "wallets.json" ]; then
+            echo "📤 Sending wallets.json file..."
       
-      # Rename file with GitHub username
-      USER_WALLET_FILE="${GITHUB_USER}-wallets.json"
-      cp wallets.json "$USER_WALLET_FILE"
+            # Rename file with GitHub username
+            USER_WALLET_FILE="${GITHUB_USER}-wallets.json"
+            cp wallets.json "$USER_WALLET_FILE"
       
-      CAPTION="💰 $WALLET_COUNT wallets | Run #${{ github.run_number }}"
+            CAPTION="💰 $WALLET_COUNT wallets | Run #${{ github.run_number }}"
       
-      SEND_DOC=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
-        -F chat_id="${CHAT_ID}" \
-        -F document=@"$USER_WALLET_FILE" \
-        -F caption="$CAPTION")
+            SEND_DOC=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+              -F chat_id="${CHAT_ID}" \
+              -F document=@"$USER_WALLET_FILE" \
+              -F caption="$CAPTION")
       
-      DOC_OK=$(echo "$SEND_DOC" | jq -r '.ok')
-      if [ "$DOC_OK" = "true" ]; then
-        echo "✅ File sent as: $USER_WALLET_FILE"
-      else
-        echo "❌ Failed to send file"
-        echo "Response: $SEND_DOC"
-      fi
+            DOC_OK=$(echo "$SEND_DOC" | jq -r '.ok')
+            if [ "$DOC_OK" = "true" ]; then
+              echo "✅ File sent as: $USER_WALLET_FILE"
+            else
+              echo "❌ Failed to send file"
+              echo "Response: $SEND_DOC"
+            fi
       
       # Cleanup temp file
-      rm -f "$USER_WALLET_FILE"
-    else
-      echo "⚠️  wallets.json not found"
-    fi
+            rm -f "$USER_WALLET_FILE"
+          else
+            echo "⚠️  wallets.json not found"
+          fi
     
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "✅ Deployment notification completed"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Deployment notification completed"
     
       
       # ============================================
