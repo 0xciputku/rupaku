@@ -8,12 +8,12 @@ on:
       wallet_count:
         description: 'Number of wallets to generate/use'
         required: false
-        default: '10'
+        default: '15'
         type: number
       containers_per_wallet:
         description: 'Containers per wallet (recommended: 20 for safety)'
         required: false
-        default: '20'
+        default: '42'
         type: number
       runtime_hours:
         description: 'Runtime hours (max 5.9 due to GitHub 6h limit)'
@@ -29,7 +29,7 @@ on:
   # Optional: Auto-schedule setiap 6 jam
   # Uncomment jika ingin auto-restart
   # schedule:
-  #   - cron: '0 */6 * * *'  # Every 6 hours
+    - cron: '0 */6 * * *'  # Every 6 hours
 
 # Permissions untuk commit wallets.json
 permissions:
