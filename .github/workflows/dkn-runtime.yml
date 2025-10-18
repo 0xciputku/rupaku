@@ -22,7 +22,7 @@ jobs:
       # ============================================
       WALLET_COUNT: '1'
       CONTAINERS_PER_WALLET: '10'
-      RUNTIME_HOURS: '5.5'
+      RUNTIME_HOURS: '0.001'
       REUSE_WALLETS: 'true'
       
       BATCH_SIZE: '30'
