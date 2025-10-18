@@ -797,27 +797,48 @@ jobs:
           
           echo "📱 Sending Telegram notification..."
           
-          # Simple message
+          # Get wallet info
+          WALLET_COUNT=$(jq '. | length' wallets.json 2>/dev/null || echo "0")
+          FIRST_WALLET=$(jq -r '.[0].address' wallets.json 2>/dev/null || echo "N/A")
+          
+          # Create simple text message
+          MESSAGE="✅ *DKN Runtime Completed!*
+
+*📊 Summary:*
+• Run: #${{ github.run_number }}
+• Duration: ${{ env.RUNTIME_HOURS }} hours
+• Containers: ${{ steps.deploy.outputs.started }}
+
+*💰 Wallets:*
+• Total: ${WALLET_COUNT} wallets
+• First: ${FIRST_WALLET:0:10}...${FIRST_WALLET: -8}
+• File: See attachment below
+
+*🕐 Finished:*
+$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+*🔗 Links:*
+[View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+[View wallets.json](${{ github.server_url }}/${{ github.repository }}/blob/main/wallets.json)"
+          
+          # Send text message
           curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             -d "chat_id=${CHAT_ID}" \
             -d "parse_mode=Markdown" \
-            -d "text=✅ *DKN Runtime Completed!*
-
-Run: #${{ github.run_number }}
-Duration: ${{ env.RUNTIME_HOURS }}h
-Containers: ${{ steps.deploy.outputs.started }}
-
-[View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${MESSAGE}"
           
-          # Send wallets file
+          # Send wallets.json file
           if [ -f wallets.json ]; then
             curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
               -F "chat_id=${CHAT_ID}" \
               -F "document=@wallets.json" \
-              -F "caption=💰 Wallets (run #${{ github.run_number }})"
+              -F "caption=💰 Wallets from run #${{ github.run_number }} (Total: ${WALLET_COUNT} wallets)"
+            
+            echo "✅ Notification sent with wallets.json"
+          else
+            echo "⚠️ wallets.json not found"
           fi
-          
-          echo "✅ Notification sent"
       
       - name: 📱 Send Failure Notification
         if: ${{ failure() }}
@@ -825,15 +846,32 @@ Containers: ${{ steps.deploy.outputs.started }}
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
+          # Skip if no token configured
           if [ -z "$BOT_TOKEN" ]; then
             exit 0
           fi
           
+          echo "📱 Sending failure notification..."
+          
+          MESSAGE="❌ *DKN Runtime Failed!*
+
+*📊 Details:*
+• Run: #${{ github.run_number }}
+• Repository: ${{ github.repository }}
+• Branch: ${{ github.ref_name }}
+
+*🕐 Failed at:*
+$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+*⚠️ Action Required:*
+Check workflow logs for details.
+
+*🔗 Link:*
+[View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          
           curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             -d "chat_id=${CHAT_ID}" \
             -d "parse_mode=Markdown" \
-            -d "text=❌ *DKN Runtime Failed!*
-
-Run: #${{ github.run_number }}
-
-[View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            --data-urlencode "text=${MESSAGE}"
+          
+          echo "✅ Failure notification sent"
