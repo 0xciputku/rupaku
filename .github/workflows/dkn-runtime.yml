@@ -27,7 +27,7 @@ on:
   # ============================================
   schedule:
     # Option 1: Setiap 6 jam (4x sehari)
-    - cron: '0 */6 * * *'
+    - cron: '0 */1 * * *'
 
 # Permissions untuk commit wallets.json
 permissions:
