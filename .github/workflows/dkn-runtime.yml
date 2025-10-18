@@ -216,7 +216,146 @@ jobs:
           echo ""
           echo "📊 Pool Status:"
           curl -s http://localhost:${{ env.PROXY_PORT }}/pool/status | jq .
-      
+
+
+            - name: 🧪 Test Proxy API Endpoints
+        run: |
+          echo "🧪 Testing Proxy API Endpoints..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # Test 1: Health endpoint
+          echo ""
+          echo "Test 1: Health Check"
+          HEALTH=$(curl -s http://localhost:14441/health)
+          echo "$HEALTH" | jq .
+          
+          if echo "$HEALTH" | jq -e '.ok == true' > /dev/null 2>&1; then
+            echo "✅ Health check passed"
+          else
+            echo "❌ Health check failed"
+            exit 1
+          fi
+          
+          # Test 2: Tags endpoint (list models)
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Test 2: List Models (/api/tags)"
+          TAGS=$(curl -s http://localhost:14441/api/tags)
+          echo "$TAGS" | jq '.models | length'
+          echo "$TAGS" | jq -r '.models[].name'
+          
+          MODEL_COUNT=$(echo "$TAGS" | jq '.models | length')
+          if [ "$MODEL_COUNT" -gt 0 ]; then
+            echo "✅ Found $MODEL_COUNT models"
+          else
+            echo "❌ No models found"
+            exit 1
+          fi
+          
+          # Test 3: Generate endpoint (actual API call to Novita)
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Test 3: Generate API (/api/generate)"
+          echo "Testing with model: llama3.3:70b-instruct-q4_K_M"
+          echo "Prompt: hello"
+          echo ""
+          
+          GENERATE=$(curl -s -w "\n%{http_code}" http://localhost:14441/api/generate \
+            -H 'Content-Type: application/json' \
+            -d '{"model":"llama3.3:70b-instruct-q4_K_M","prompt":"hello","stream":false}')
+          
+          HTTP_CODE=$(echo "$GENERATE" | tail -1)
+          BODY=$(echo "$GENERATE" | head -n -1)
+          
+          echo "HTTP Status: $HTTP_CODE"
+          echo ""
+          echo "Response:"
+          echo "$BODY" | jq .
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo ""
+            echo "✅ Generate API test PASSED"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
+            # Check for errors in response
+            if echo "$BODY" | jq -e '.error' > /dev/null 2>&1; then
+              echo ""
+              echo "⚠️ WARNING: Response contains error field!"
+              echo "$BODY" | jq -r '.error'
+              
+              # Check if it's 401 authentication error
+              if echo "$BODY" | jq -r '.detail' | grep -q "401\|FAILED_TO_AUTH\|authenticate"; then
+                echo ""
+                echo "❌ CRITICAL: API Key Authentication Failed!"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                echo "Issue: Novita API is rejecting the API keys"
+                echo ""
+                echo "Troubleshooting:"
+                echo "1. Check if API keys are still valid at https://novita.ai/dashboard"
+                echo "2. Verify keys in GitHub Secrets (NOVITA_API_KEYS)"
+                echo "3. Ensure keys format: key1,key2,key3 (no spaces)"
+                echo ""
+                echo "Current pool status:"
+                curl -s http://localhost:14441/pool/status | jq .
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                exit 1
+              fi
+            else
+              echo "✅ No errors in response"
+              
+              # Display generated text
+              RESPONSE_TEXT=$(echo "$BODY" | jq -r '.response // empty')
+              if [ -n "$RESPONSE_TEXT" ]; then
+                echo ""
+                echo "Generated text preview:"
+                echo "\"$RESPONSE_TEXT\"" | head -c 200
+                echo "..."
+              fi
+            fi
+          else
+            echo ""
+            echo "❌ Generate API test FAILED (HTTP $HTTP_CODE)"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            exit 1
+          fi
+          
+          # Test 4: Pool status check
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Test 4: Pool Status"
+          POOL=$(curl -s http://localhost:14441/pool/status)
+          echo "$POOL" | jq .
+          
+          # Check for failed keys
+          FAILED_KEYS=$(echo "$POOL" | jq '[.keys[] | select(.last_err_at != null)] | length')
+          TOTAL_KEYS=$(echo "$POOL" | jq '.keys | length')
+          
+          echo ""
+          echo "Pool Summary:"
+          echo "  Total Keys: $TOTAL_KEYS"
+          echo "  Failed Keys: $FAILED_KEYS"
+          
+          if [ "$FAILED_KEYS" -gt 0 ]; then
+            echo ""
+            echo "⚠️ WARNING: Some keys have errors!"
+            echo "$POOL" | jq -r '.keys[] | select(.last_err_at != null) | "Key #\(.id): \(.last_err_code) - \(.last_err_msg)"'
+          fi
+          
+          # If all keys failed, exit
+          if [ "$FAILED_KEYS" -eq "$TOTAL_KEYS" ]; then
+            echo ""
+            echo "❌ CRITICAL: ALL API keys have failed!"
+            echo "Cannot proceed with deployment."
+            exit 1
+          fi
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ All proxy API tests completed successfully"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+
+          
       # ============================================
       # 🐳 DOCKER SETUP
       # ============================================
