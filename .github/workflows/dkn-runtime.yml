@@ -169,7 +169,7 @@ jobs:
           
           cat > .env << EOF
           NOVITA_API_KEYS=${{ secrets.NOVITA_API_KEYS }}
-          MODEL_MAP=${{ secrets.MODEL_MAP }}
+          MODEL_MAP={"llama3.2:1b-instruct-q4_K_M":"meta-llama/llama-3.2-1b-instruct","llama3.1:8b-instruct-q4_K_M":"meta-llama/llama-3.1-8b-instruct","qwen3:8b":"qwen/qwen3-8b-fp8","gemma3:12b":"google/gemma-3-12b-it","gemma3:27b":"google/gemma-3-27b-it","qwen3:32b":"qwen/qwen3-32b-fp8","llama3.3:70b-instruct-q4_K_M":"meta-llama/llama-3.3-70b-instruct"}
           PORT=$PROXY_PORT
           RL_MODE=provider_only
           NOVITA_RPM_PER_KEY=0
@@ -234,7 +234,7 @@ jobs:
           echo "Deploying $TOTAL containers..."
           
           DKN_MODELS="${{ secrets.DKN_MODELS }}"
-          [ -z "$DKN_MODELS" ] && DKN_MODELS="llama3.2:1b-instruct-q4_K_M,llama3.1:8b-instruct-q4_K_M,qwen3:8b"
+          [ -z "$DKN_MODELS" ] && DKN_MODELS="gemma3:12b,gemma3:27b,qwen3:32b,llama3.3:70b-instruct-q4_K_M"
           
           STARTED=0
           
