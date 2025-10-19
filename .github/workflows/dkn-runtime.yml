@@ -21,12 +21,12 @@ jobs:
       # ============================================
       # 🔧 CONFIGURATION (EDIT HERE)
       # ============================================
-      WALLET_COUNT: '15'
-      CONTAINERS_PER_WALLET: '20'
-      RUNTIME_HOURS: '5.8'
+      WALLET_COUNT: '5'
+      CONTAINERS_PER_WALLET: '125'
+      RUNTIME_HOURS: '5.5'
       REUSE_WALLETS: 'true'
       
-      BATCH_SIZE: '10'
+      BATCH_SIZE: '20'
       PAUSE_SECONDS: '60'
       PROXY_PORT: '14441'
       
@@ -138,7 +138,7 @@ jobs:
           else
             # Commit changes
             WALLET_COUNT=$(jq '. | length' wallets.json)
-            git commit -m "🔄 Auto-update wallets.json (${WALLET_COUNT} wallets) [run #${{ github.run_number }}]"
+            git commit -m "🔄 Aut0-upd4te  ) [run- #${{ github.run_number }}]"
             
             # Push to repo
             git push
