@@ -3,9 +3,9 @@ name: 🚀 DKN Compute Runtime
 on:
   workflow_dispatch:
   
-  schedule:
+  #schedule:
     # Every 6 hours, at minute 15
-    - cron: '15 */5 * * *'
+    #- cron: '15 */5 * * *'
 
 permissions:
   contents: write  # Need write for git commit
