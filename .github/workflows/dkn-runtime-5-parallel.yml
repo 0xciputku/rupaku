@@ -26,7 +26,7 @@ jobs:
       # 🔧 CONFIGURATION (EDIT HERE)
       # ============================================
       WALLET_COUNT: '5'
-      CONTAINERS_PER_WALLET: '125'
+      CONTAINERS_PER_WALLET: '120'
       RUNTIME_HOURS: '5.5'
       REUSE_WALLETS: 'true'
       
